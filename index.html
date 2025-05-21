@@ -1,0 +1,1812 @@
+import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
+// import { createClient } from '@supabase/supabase-js'; // Эта строка была удалена полностью, чтобы избежать ошибки сборщика
+
+// Context for Supabase and User
+const AppContext = createContext(null);
+
+const AppProvider = ({ children }) => {
+    const [supabase, setSupabase] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    // Функция для инициализации Supabase клиента
+    const initializeSupabaseClient = async () => {
+        try {
+            const supabaseUrl = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
+            const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdjhhUNuxxLLGP8';
+
+            if (!supabaseUrl || !supabaseAnonKey) {
+                setError("Supabase URL или Anon Key отсутствуют. Пожалуйста, убедитесь, что они предоставлены.");
+                setLoading(false);
+                return;
+            }
+
+            // Проверяем, доступен ли createClient из глобального объекта window
+            if (!window.supabase || !window.supabase.createClient) {
+                setError("Библиотека клиента Supabase не загружена в глобальный объект window. Пожалуйста, проверьте CDN-ссылку.");
+                setLoading(false);
+                return;
+            }
+
+            const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+            setSupabase(supabaseClient);
+
+            // Попытка получить текущую сессию или войти анонимно
+            const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+            if (sessionError) throw sessionError;
+
+            if (session) {
+                setUserId(session.user.id);
+            } else {
+                // Вход анонимно, если сессия не найдена
+                const { data, error: signInError } = await supabaseClient.auth.signInAnonymously();
+                if (signInError) throw signInError;
+                setUserId(data.user.id);
+            }
+
+            // Слушатель изменений состояния аутентификации
+            const { data: authListener } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+                if (session) {
+                    setUserId(session.user.id);
+                } else {
+                    setUserId(null); // Пользователь вышел или сессия завершилась
+                }
+            });
+
+            setLoading(false);
+
+            // Очистка подписки при размонтировании компонента
+            return () => {
+                authListener?.subscription.unsubscribe();
+            };
+        } catch (err) {
+            console.error("Ошибка инициализации Supabase:", err);
+            setError("Не удалось инициализировать Supabase: " + err.message);
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const loadSupabaseAndInitialize = () => {
+            // Проверяем наличие createClient в глобальном объекте window
+            if (window.supabase && window.supabase.createClient) {
+                console.log("Клиент Supabase найден в объекте window. Инициализация...");
+                initializeSupabaseClient(); // Вызываем фактическую функцию инициализации
+            } else {
+                console.log("Клиент Supabase еще не доступен, повторяем попытку...");
+                setTimeout(loadSupabaseAndInitialize, 100); // Опрашиваем каждые 100 мс
+            }
+        };
+
+        // Начинаем опрос для клиента Supabase
+        loadSupabaseAndInitialize();
+
+        // Очистка не требуется для опроса, так как он останавливается после инициализации
+    }, []); // Запускается один раз при монтировании
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                <div className="text-lg font-semibold text-gray-700">Загрузка CRM...</div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-red-100 text-red-700 p-4">
+                <div className="text-lg font-semibold">Ошибка: {error}</div>
+            </div>
+        );
+    }
+
+    return (
+        <AppContext.Provider value={{ supabase, userId }}>
+            {children}
+        </AppContext.Provider>
+    );
+};
+
+// --- Utility Components ---
+
+const Modal = ({ isOpen, onClose, title, children }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative transform transition-all duration-300 scale-100 opacity-100">
+                <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">{title}</h3>
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-3xl leading-none"
+                    aria-label="Закрыть"
+                >
+                    &times;
+                </button>
+                <div className="max-h-[70vh] overflow-y-auto pr-2">
+                    {children}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const InputField = ({ label, id, type = 'text', value, onChange, placeholder = '' }) => (
+    <div className="mb-4">
+        <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+            {label}
+        </label>
+        <input
+            type={type}
+            id={id}
+            name={id}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+        />
+    </div>
+);
+
+const SelectField = ({ label, id, value, onChange, options }) => (
+    <div className="mb-4">
+        <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+            {label}
+        </label>
+        <select
+            id={id}
+            name={id}
+            value={value}
+            onChange={onChange}
+            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+        >
+            {options.map(option => (
+                <option key={option.value} value={option.value}>
+                    {option.label}
+                </option>
+            ))}
+        </select>
+    </div>
+);
+
+const TextAreaField = ({ label, id, value, onChange, placeholder = '' }) => (
+    <div className="mb-4">
+        <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+            {label}
+        </label>
+        <textarea
+            id={id}
+            name={id}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            rows="4"
+            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out"
+        ></textarea>
+    </div>
+);
+
+// --- Pages/Components ---
+
+const DealForm = ({ deal, contacts, statuses, onSave, onClose }) => {
+    const [formData, setFormData] = useState(deal || {
+        name: '',
+        amount: '',
+        status_id: '',
+        owner_id: '', // This should be current user's ID
+        close_date: '',
+        // description: '', // Removed as per user request
+        contact_ids: [] // For linking contacts
+    });
+
+    useEffect(() => {
+        if (deal) {
+            setFormData({
+                ...deal,
+                // Convert date string to ISO string for date input
+                close_date: deal.close_date ? new Date(deal.close_date).toISOString().split('T')[0] : '',
+                contact_ids: deal.contact_ids || []
+            });
+        }
+    }, [deal]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleContactChange = (e) => {
+        const { options } = e.target;
+        const selectedContacts = Array.from(options)
+            .filter(option => option.selected)
+            .map(option => option.value);
+        setFormData(prev => ({ ...prev, contact_ids: selectedContacts }));
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave(formData);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <InputField label="Название сделки" id="name" value={formData.name} onChange={handleChange} placeholder="Название сделки" />
+            <InputField label="Сумма" id="amount" type="number" value={formData.amount} onChange={handleChange} placeholder="0.00" />
+            <SelectField
+                label="Статус"
+                id="status_id"
+                value={formData.status_id}
+                onChange={handleChange}
+                options={[{ value: '', label: 'Выберите статус' }, ...statuses.map(s => ({ value: s.id, label: s.name }))]}
+            />
+            <InputField label="Дата закрытия" id="close_date" type="date" value={formData.close_date} onChange={handleChange} />
+            {/* <TextAreaField label="Описание" id="description" value={formData.description} onChange={handleChange} placeholder="Подробное описание сделки" /> */}
+
+            <div className="mb-4">
+                <label htmlFor="contact_ids" className="block text-sm font-medium text-gray-700 mb-1">
+                    Связанные контакты
+                </label>
+                <select
+                    id="contact_ids"
+                    name="contact_ids"
+                    multiple
+                    value={formData.contact_ids}
+                    onChange={handleContactChange}
+                    className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out h-32"
+                >
+                    {contacts.map(contact => (
+                        <option key={contact.id} value={contact.id}>
+                            {contact.first_name} {contact.last_name} ({contact.company})
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
+                >
+                    Отмена
+                </button>
+                <button
+                    type="submit"
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                >
+                    Сохранить сделку
+                </button>
+            </div>
+        </form>
+    );
+};
+
+const ContactForm = ({ contact, onSave, onClose }) => {
+    const [formData, setFormData] = useState(contact || {
+        first_name: '',
+        last_name: '',
+        email: '',
+        phone: '',
+        company: '',
+        title: ''
+    });
+
+    useEffect(() => {
+        if (contact) {
+            setFormData(contact);
+        }
+    }, [contact]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave(formData);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <InputField label="Имя" id="first_name" value={formData.first_name} onChange={handleChange} placeholder="Имя" />
+            <InputField label="Фамилия" id="last_name" value={formData.last_name} onChange={handleChange} placeholder="Фамилия" />
+            <InputField label="Email" id="email" type="email" value={formData.email} onChange={handleChange} placeholder="email@example.com" />
+            <InputField label="Телефон" id="phone" value={formData.phone} onChange={handleChange} placeholder="+371XXXXXXXX" />
+            <InputField label="Компания" id="company" value={formData.company} onChange={handleChange} placeholder="Название компании" />
+            <InputField label="Должность" id="title" value={formData.title} onChange={handleChange} placeholder="Должность" />
+
+            <div className="flex justify-end space-x-3 mt-6">
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
+                >
+                    Отмена
+                </button>
+                <button
+                    type="submit"
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                >
+                    Сохранить контакт
+                </button>
+            </div>
+        </form>
+    );
+};
+
+const DealsPage = () => {
+    const { supabase, userId } = useContext(AppContext);
+    const [deals, setDeals] = useState([]);
+    const [contacts, setContacts] = useState([]);
+    const [statuses, setStatuses] = useState([]);
+    const [isDealModalOpen, setIsDealModalOpen] = useState(false);
+    const [editingDeal, setEditingDeal] = useState(null);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [dealToDelete, setDealToDelete] = useState(null);
+    const [filterStatus, setFilterStatus] = useState('all');
+
+
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        // Fetch statuses
+        const statusesSubscription = supabase
+            .from('deal_statuses')
+            .select('*')
+            .order('order_index')
+            .on('*', payload => {
+                // Real-time updates for statuses
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    // Re-fetch all statuses to ensure correct order after changes
+                    supabase.from('deal_statuses').select('*').order('order_index')
+                        .then(({ data, error }) => {
+                            if (error) console.error("Error re-fetching statuses:", error);
+                            else setStatuses(data);
+                        });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for statuses
+        supabase.from('deal_statuses').select('*').order('order_index')
+            .then(({ data, error }) => {
+                if (error) console.error("Error fetching initial statuses:", error);
+                else setStatuses(data);
+            });
+
+        // Fetch contacts (for linking to deals)
+        const contactsSubscription = supabase
+            .from('contacts')
+            .select('*')
+            .eq('user_id', userId)
+            .on('*', payload => {
+                // Real-time updates for contacts
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    supabase.from('contacts').select('*').eq('user_id', userId)
+                        .then(({ data, error }) => {
+                            if (error) console.error("Error re-fetching contacts:", error);
+                            else setContacts(data);
+                        });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for contacts
+        supabase.from('contacts').select('*').eq('user_id', userId)
+            .then(({ data, error }) => {
+                if (error) console.error("Error fetching initial contacts:", error);
+                else setContacts(data);
+            });
+
+
+        // Fetch deals
+        const dealsSubscription = supabase
+            .from('deals')
+            .select('*')
+            .eq('owner_id', userId)
+            .on('*', async payload => {
+                // Real-time updates for deals
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    const { data: fetchedDeals, error } = await supabase
+                        .from('deals')
+                        .select('*')
+                        .eq('owner_id', userId);
+
+                    if (error) {
+                        console.error("Error re-fetching deals:", error);
+                        return;
+                    }
+
+                    // Fetch linked contacts for each deal (Supabase doesn't auto-join arrays like Firestore)
+                    const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
+                        if (deal.contact_ids && deal.contact_ids.length > 0) {
+                            const { data: linkedContacts, error: contactsError } = await supabase
+                                .from('contacts')
+                                .select('id, first_name, last_name, company')
+                                .in('id', deal.contact_ids);
+
+                            if (contactsError) {
+                                console.error("Error fetching linked contacts:", contactsError);
+                                return { ...deal, linkedContacts: [] };
+                            }
+                            return { ...deal, linkedContacts: linkedContacts };
+                        }
+                        return { ...deal, linkedContacts: [] };
+                    }));
+                    setDeals(dealsWithContacts);
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for deals
+        supabase.from('deals').select('*').eq('owner_id', userId)
+            .then(async ({ data: fetchedDeals, error }) => {
+                if (error) {
+                    console.error("Error fetching initial deals:", error);
+                    return;
+                }
+                const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
+                    if (deal.contact_ids && deal.contact_ids.length > 0) {
+                        const { data: linkedContacts, error: contactsError } = await supabase
+                            .from('contacts')
+                            .select('id, first_name, last_name, company')
+                            .in('id', deal.contact_ids);
+
+                        if (contactsError) {
+                            console.error("Error fetching linked contacts:", contactsError);
+                            return { ...deal, linkedContacts: [] };
+                        }
+                        return { ...deal, linkedContacts: linkedContacts };
+                    }
+                    return { ...deal, linkedContacts: [] };
+                }));
+                setDeals(dealsWithContacts);
+            });
+
+
+        return () => {
+            statusesSubscription.unsubscribe();
+            contactsSubscription.unsubscribe();
+            dealsSubscription.unsubscribe();
+        };
+    }, [supabase, userId]); // Depend on supabase and userId
+
+    const handleSaveDeal = async (dealData) => {
+        try {
+            const dealToSave = {
+                name: dealData.name,
+                amount: parseFloat(dealData.amount),
+                status_id: dealData.status_id,
+                owner_id: userId,
+                // Supabase DATE type expects 'YYYY-MM-DD' string
+                close_date: dealData.close_date || null,
+                // description: dealData.description, // Removed
+                contact_ids: dealData.contact_ids || [],
+            };
+
+            if (editingDeal) {
+                // Update existing deal
+                const { error } = await supabase
+                    .from('deals')
+                    .update(dealToSave)
+                    .eq('id', editingDeal.id);
+                if (error) throw error;
+                console.log("Сделка обновлена:", editingDeal.id);
+            } else {
+                // Add new deal
+                const { error } = await supabase
+                    .from('deals')
+                    .insert(dealToSave);
+                if (error) throw error;
+                console.log("Новая сделка добавлена.");
+            }
+            setIsDealModalOpen(false);
+            setEditingDeal(null);
+        } catch (e) {
+            console.error("Ошибка при сохранении сделки:", e);
+        }
+    };
+
+    const handleEditDeal = (deal) => {
+        setEditingDeal(deal);
+        setIsDealModalOpen(true);
+    };
+
+    const handleDeleteClick = (deal) => {
+        setDealToDelete(deal);
+        setShowDeleteConfirm(true);
+    };
+
+    const confirmDeleteDeal = async () => {
+        if (!dealToDelete) return;
+        try {
+            const { error } = await supabase
+                .from('deals')
+                .delete()
+                .eq('id', dealToDelete.id);
+            if (error) throw error;
+            console.log("Сделка удалена:", dealToDelete.id);
+            setShowDeleteConfirm(false);
+            setDealToDelete(null);
+        } catch (e) {
+            console.error("Ошибка при удалении сделки:", e);
+        }
+    };
+
+    const getStatusName = (statusId) => {
+        const status = statuses.find(s => s.id === statusId);
+        return status ? status.name : 'Неизвестный статус';
+    };
+
+    const getStatusColor = (statusId) => {
+        const status = statuses.find(s => s.id === statusId);
+        return status ? status.color : '#6B7280'; // Default gray
+    };
+
+    const filteredDeals = deals.filter(deal => {
+        if (filterStatus === 'all') return true;
+        return deal.status_id === filterStatus;
+    });
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-extrabold text-gray-900">Сделки</h2>
+                <div className="flex items-center space-x-4">
+                    <SelectField
+                        id="statusFilter"
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        options={[{ value: 'all', label: 'Все статусы' }, ...statuses.map(s => ({ value: s.id, label: s.name }))]}
+                    />
+                    <button
+                        onClick={() => { setEditingDeal(null); setIsDealModalOpen(true); }}
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out flex items-center"
+                    >
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                        Новая сделка
+                    </button>
+                </div>
+            </div>
+
+            {filteredDeals.length === 0 ? (
+                <p className="text-center text-gray-600 text-lg mt-10">Пока нет сделок. Создай первую!</p>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredDeals.map(deal => (
+                        <div key={deal.id} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden">
+                            <div className="p-6">
+                                <div className="flex justify-between items-start mb-3">
+                                    <h3 className="text-xl font-bold text-gray-800">{deal.name}</h3>
+                                    <span
+                                        className="px-3 py-1 rounded-full text-xs font-semibold"
+                                        style={{ backgroundColor: getStatusColor(deal.status_id), color: 'white' }}
+                                    >
+                                        {getStatusName(deal.status_id)}
+                                    </span>
+                                </div>
+                                <p className="text-gray-600 mb-2">Сумма: <span className="font-semibold text-lg text-green-700">${deal.amount?.toFixed(2)}</span></p>
+                                <p className="text-gray-600 mb-2">
+                                    Дата закрытия: {deal.close_date ? new Date(deal.close_date).toLocaleDateString() : 'N/A'}
+                                </p>
+                                {deal.linkedContacts && deal.linkedContacts.length > 0 && (
+                                    <div className="mt-3">
+                                        <p className="text-sm font-medium text-gray-700 mb-1">Контакты:</p>
+                                        <ul className="list-disc list-inside text-gray-600 text-sm">
+                                            {deal.linkedContacts.map(contact => (
+                                                <li key={contact.id}>{contact.first_name} {contact.last_name} ({contact.company})</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                {/* <p className="text-gray-500 text-sm mt-3 line-clamp-2">{deal.description}</p> */}
+                            </div>
+                            <div className="bg-gray-50 border-t border-gray-100 px-6 py-4 flex justify-end space-x-2">
+                                <button
+                                    onClick={() => handleEditDeal(deal)}
+                                    className="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-indigo-50 transition duration-150"
+                                >
+                                    Редактировать
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteClick(deal)}
+                                    className="text-red-600 hover:text-red-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-red-50 transition duration-150"
+                                >
+                                    Удалить
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <Modal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} title={editingDeal ? "Редактировать сделку" : "Новая сделка"}>
+                <DealForm
+                    deal={editingDeal}
+                    contacts={contacts}
+                    statuses={statuses}
+                    onSave={handleSaveDeal}
+                    onClose={() => setIsDealModalOpen(false)}
+                />
+            </Modal>
+
+            <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Подтверждение удаления">
+                <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить сделку "{dealToDelete?.name}"? Это действие необратимо.</p>
+                <div className="flex justify-end space-x-3">
+                    <button
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
+                    >
+                        Отмена
+                    </button>
+                    <button
+                        onClick={confirmDeleteDeal}
+                        className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                    >
+                        Удалить
+                    </button>
+                </div>
+            </Modal>
+        </div>
+    );
+};
+
+const ContactsPage = () => {
+    const { supabase, userId } = useContext(AppContext);
+    const [contacts, setContacts] = useState([]);
+    const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+    const [editingContact, setEditingContact] = useState(null);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [contactToDelete, setContactToDelete] = useState(null);
+
+
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        const contactsSubscription = supabase
+            .from('contacts')
+            .select('*')
+            .eq('user_id', userId)
+            .on('*', payload => {
+                // Real-time updates for contacts
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    supabase.from('contacts').select('*').eq('user_id', userId)
+                        .then(({ data, error }) => {
+                            if (error) console.error("Error re-fetching contacts:", error);
+                            else setContacts(data);
+                        });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for contacts
+        supabase.from('contacts').select('*').eq('user_id', userId)
+            .then(({ data, error }) => {
+                if (error) console.error("Error fetching initial contacts:", error);
+                else setContacts(data);
+            });
+
+        return () => contactsSubscription.unsubscribe();
+    }, [supabase, userId]);
+
+    const handleSaveContact = async (contactData) => {
+        try {
+            const contactToSave = {
+                ...contactData,
+                user_id: userId,
+                // created_at and updated_at are handled by database defaults/triggers
+            };
+
+            if (editingContact) {
+                // Update existing contact
+                const { error } = await supabase
+                    .from('contacts')
+                    .update(contactToSave)
+                    .eq('id', editingContact.id);
+                if (error) throw error;
+                console.log("Контакт обновлен:", editingContact.id);
+            } else {
+                // Add new contact
+                const { error } = await supabase
+                    .from('contacts')
+                    .insert(contactToSave);
+                if (error) throw error;
+                console.log("Новый контакт добавлен.");
+            }
+            setIsContactModalOpen(false);
+            setEditingContact(null);
+        } catch (e) {
+            console.error("Ошибка при сохранении контакта:", e);
+        }
+    };
+
+    const handleEditContact = (contact) => {
+        setEditingContact(contact);
+        setIsContactModalOpen(true);
+    };
+
+    const handleDeleteClick = (contact) => {
+        setContactToDelete(contact);
+        setShowDeleteConfirm(true);
+    };
+
+    const confirmDeleteContact = async () => {
+        if (!contactToDelete) return;
+        try {
+            const { error } = await supabase
+                .from('contacts')
+                .delete()
+                .eq('id', contactToDelete.id);
+            if (error) throw error;
+            console.log("Контакт удален:", contactToDelete.id);
+            setShowDeleteConfirm(false);
+            setContactToDelete(null);
+        } catch (e) {
+            console.error("Ошибка при удалении контакта:", e);
+        }
+    };
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-extrabold text-gray-900">Контакты</h2>
+                <button
+                    onClick={() => { setEditingContact(null); setIsContactModalOpen(true); }}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out flex items-center"
+                >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    Новый контакт
+                </button>
+            </div>
+
+            {contacts.length === 0 ? (
+                <p className="text-center text-gray-600 text-lg mt-10">Пока нет контактов. Добавь первый!</p>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {contacts.map(contact => (
+                        <div key={contact.id} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden">
+                            <div className="p-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-2">{contact.first_name} {contact.last_name}</h3>
+                                <p className="text-gray-600 mb-1">Компания: <span className="font-semibold">{contact.company || 'N/A'}</span></p>
+                                <p className="text-gray-600 mb-1">Должность: {contact.title || 'N/A'}</p>
+                                <p className="text-gray-600 mb-1">Email: <a href={`mailto:${contact.email}`} className="text-indigo-600 hover:underline">{contact.email || 'N/A'}</a></p>
+                                <p className="text-gray-600">Телефон: <a href={`tel:${contact.phone}`} className="text-indigo-600 hover:underline">{contact.phone || 'N/A'}</a></p>
+                            </div>
+                            <div className="bg-gray-50 border-t border-gray-100 px-6 py-4 flex justify-end space-x-2">
+                                <button
+                                    onClick={() => handleEditContact(contact)}
+                                    className="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-indigo-50 transition duration-150"
+                                >
+                                    Редактировать
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteClick(contact)}
+                                    className="text-red-600 hover:text-red-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-red-50 transition duration-150"
+                                >
+                                    Удалить
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <Modal isOpen={isContactModalOpen} onClose={() => setIsContactModalOpen(false)} title={editingContact ? "Редактировать контакт" : "Новый контакт"}>
+                <ContactForm
+                    contact={editingContact}
+                    onSave={handleSaveContact}
+                    onClose={() => setIsContactModalOpen(false)}
+                />
+            </Modal>
+
+            <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Подтверждение удаления">
+                <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить контакт "{contactToDelete?.first_name} {contactToDelete?.last_name}"? Это действие необратимо.</p>
+                <div className="flex justify-end space-x-3">
+                    <button
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
+                    >
+                        Отмена
+                    </button>
+                    <button
+                        onClick={confirmDeleteContact}
+                        className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                    >
+                        Удалить
+                    </button>
+                </div>
+            </Modal>
+        </div>
+    );
+};
+
+const HistoryPage = () => {
+    const { supabase, userId } = useContext(AppContext);
+    const [interactions, setInteractions] = useState([]);
+    const [deals, setDeals] = useState([]);
+    const [contacts, setContacts] = useState([]);
+
+
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        const fetchRelatedData = async () => {
+            // Fetch deals
+            const { data: dealsData, error: dealsError } = await supabase
+                .from('deals')
+                .select('id, name')
+                .eq('owner_id', userId);
+            if (dealsError) console.error("Error fetching deals for history:", dealsError);
+            else setDeals(dealsData);
+
+            // Fetch contacts
+            const { data: contactsData, error: contactsError } = await supabase
+                .from('contacts')
+                .select('id, first_name, last_name')
+                .eq('user_id', userId);
+            if (contactsError) console.error("Error fetching contacts for history:", contactsError);
+            else setContacts(contactsData);
+        };
+
+        fetchRelatedData();
+
+        const interactionsSubscription = supabase
+            .from('interactions')
+            .select('*')
+            .eq('user_id', userId)
+            .order('interaction_date', { ascending: false }) // Order by date descending
+            .on('*', payload => {
+                // Real-time updates for interactions
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    supabase.from('interactions').select('*').eq('user_id', userId).order('interaction_date', { ascending: false })
+                        .then(({ data, error }) => {
+                            if (error) console.error("Error re-fetching interactions:", error);
+                            else setInteractions(data);
+                        });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for interactions
+        supabase.from('interactions').select('*').eq('user_id', userId).order('interaction_date', { ascending: false })
+            .then(({ data, error }) => {
+                if (error) console.error("Error fetching initial interactions:", error);
+                else setInteractions(data);
+            });
+
+        return () => interactionsSubscription.unsubscribe();
+    }, [supabase, userId]);
+
+    const getDealName = (dealId) => {
+        const deal = deals.find(d => d.id === dealId);
+        return deal ? deal.name : 'Неизвестная сделка';
+    };
+
+    const getContactName = (contactId) => {
+        const contact = contacts.find(c => c.id === contactId);
+        return contact ? `${contact.first_name} ${contact.last_name}` : 'Неизвестный контакт';
+    };
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-6">История взаимодействий</h2>
+
+            {interactions.length === 0 ? (
+                <p className="text-center text-gray-600 text-lg mt-10">Пока нет записей о взаимодействиях.</p>
+            ) : (
+                <div className="space-y-6">
+                    {interactions.map(interaction => (
+                        <div key={interaction.id} className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow duration-300">
+                            <div className="flex justify-between items-center mb-3">
+                                <span className="text-lg font-semibold text-indigo-700">{interaction.type}</span>
+                                <span className="text-sm text-gray-500">
+                                    {interaction.interaction_date ? new Date(interaction.interaction_date).toLocaleString() : 'N/A'}
+                                </span>
+                            </div>
+                            {/* <p className="text-gray-800 mb-3">{interaction.notes}</p> */} {/* Removed as per user request */}
+                            {(interaction.deal_id || interaction.contact_id) && (
+                                <div className="text-sm text-gray-600">
+                                    {interaction.deal_id && (
+                                        <p>Сделка: <span className="font-medium">{getDealName(interaction.deal_id)}</span></p>
+                                    )}
+                                    {interaction.contact_id && (
+                                        <p>Контакт: <span className="font-medium">{getContactName(interaction.contact_id)}</span></p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const IntegrationsPage = () => {
+    const { supabase, userId } = useContext(AppContext);
+    const [integrations, setIntegrations] = useState([]);
+    const [isIntegrationModalOpen, setIsIntegrationModalOpen] = useState(false);
+    const [editingIntegration, setEditingIntegration] = useState(null);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [integrationToDelete, setIntegrationToDelete] = useState(null);
+
+
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        const integrationsSubscription = supabase
+            .from('integrations')
+            .select('*')
+            .eq('user_id', userId)
+            .on('*', payload => {
+                // Real-time updates for integrations
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    supabase.from('integrations').select('*').eq('user_id', userId)
+                        .then(({ data, error }) => {
+                            if (error) console.error("Error re-fetching integrations:", error);
+                            else setIntegrations(data);
+                        });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for integrations
+        supabase.from('integrations').select('*').eq('user_id', userId)
+            .then(({ data, error }) => {
+                if (error) console.error("Error fetching initial integrations:", error);
+                else setIntegrations(data);
+            });
+
+        return () => integrationsSubscription.unsubscribe();
+    }, [supabase, userId]);
+
+    const handleSaveIntegration = async (integrationData) => {
+        try {
+            const integrationToSave = {
+                ...integrationData,
+                user_id: userId,
+                // created_at and updated_at are handled by database defaults/triggers
+            };
+
+            if (editingIntegration) {
+                const { error } = await supabase
+                    .from('integrations')
+                    .update(integrationToSave)
+                    .eq('id', editingIntegration.id);
+                if (error) throw error;
+                console.log("Интеграция обновлена:", editingIntegration.id);
+            } else {
+                const { error } = await supabase
+                    .from('integrations')
+                    .insert(integrationToSave);
+                if (error) throw error;
+                console.log("Новая интеграция добавлена.");
+            }
+            setIsIntegrationModalOpen(false);
+            setEditingIntegration(null);
+        } catch (e) {
+            console.error("Ошибка при сохранении интеграции:", e);
+        }
+    };
+
+    const handleEditIntegration = (integration) => {
+        setEditingIntegration(integration);
+        setIsIntegrationModalOpen(true);
+    };
+
+    const handleDeleteClick = (integration) => {
+        setIntegrationToDelete(integration);
+        setShowDeleteConfirm(true);
+    };
+
+    const confirmDeleteIntegration = async () => {
+        if (!integrationToDelete) return;
+        try {
+            const { error } = await supabase
+                .from('integrations')
+                .delete()
+                .eq('id', integrationToDelete.id);
+            if (error) throw error;
+            console.log("Интеграция удалена:", integrationToDelete.id);
+            setShowDeleteConfirm(false);
+            setIntegrationToDelete(null);
+        } catch (e) {
+            console.error("Ошибка при удалении интеграции:", e);
+        }
+    };
+
+    const IntegrationForm = ({ integration, onSave, onClose }) => {
+        const [formData, setFormData] = useState(integration || {
+            name: '',
+            api_key: '',
+            config_json: '{}',
+            enabled: true
+        });
+
+        useEffect(() => {
+            if (integration) {
+                setFormData({
+                    ...integration,
+                    config_json: JSON.stringify(integration.config_json || {}, null, 2)
+                });
+            }
+        }, [integration]);
+
+        const handleChange = (e) => {
+            const { name, value, type, checked } = e.target;
+            setFormData(prev => ({
+                ...prev,
+                [name]: type === 'checkbox' ? checked : value
+            }));
+        };
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            try {
+                const parsedConfig = JSON.parse(formData.config_json);
+                onSave({ ...formData, config_json: parsedConfig });
+            } catch (error) {
+                console.error("Неверный формат JSON для конфигурации:", error);
+                // Using alert for simplicity, replace with custom modal
+                // In a real app, you'd use a custom modal for user feedback
+                alert("Ошибка: Неверный формат JSON для конфигурации.");
+            }
+        };
+
+        return (
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <InputField label="Название интеграции" id="name" value={formData.name} onChange={handleChange} placeholder="Например, WhatsApp Business API" />
+                <InputField label="Ключ API" id="api_key" type="password" value={formData.api_key} onChange={handleChange} placeholder="Ваш ключ API" />
+                <TextAreaField label="Конфигурация JSON" id="config_json" value={formData.config_json} onChange={handleChange} placeholder="{ &quot;webhook_url&quot;: &quot;...&quot; }" />
+                <div className="flex items-center mb-4">
+                    <input
+                        type="checkbox"
+                        id="enabled"
+                        name="enabled"
+                        checked={formData.enabled}
+                        onChange={handleChange}
+                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="enabled" className="ml-2 block text-sm text-gray-900">
+                        Включить интеграцию
+                    </label>
+                </div>
+
+                <div className="flex justify-end space-x-3 mt-6">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
+                    >
+                        Отмена
+                    </button>
+                    <button
+                        type="submit"
+                        className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                    >
+                        Сохранить интеграцию
+                    </button>
+                </div>
+            </form>
+        );
+    };
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-3xl font-extrabold text-gray-900">Интеграции</h2>
+                <button
+                    onClick={() => { setEditingIntegration(null); setIsIntegrationModalOpen(true); }}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out flex items-center"
+                >
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    Новая интеграция
+                </button>
+            </div>
+
+            {integrations.length === 0 ? (
+                <p className="text-center text-gray-600 text-lg mt-10">Пока нет настроенных интеграций.</p>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {integrations.map(integration => (
+                        <div key={integration.id} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden">
+                            <div className="p-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-2">{integration.name}</h3>
+                                <p className="text-gray-600 mb-1">Статус: <span className={`font-semibold ${integration.enabled ? 'text-green-600' : 'text-red-600'}`}>
+                                    {integration.enabled ? 'Включена' : 'Отключена'}
+                                </span></p>
+                                <p className="text-gray-600 text-sm mt-3">
+                                    Конфигурация: <pre className="bg-gray-100 p-2 rounded-lg text-xs overflow-auto">{JSON.stringify(integration.config_json, null, 2)}</pre>
+                                </p>
+                            </div>
+                            <div className="bg-gray-50 border-t border-gray-100 px-6 py-4 flex justify-end space-x-2">
+                                <button
+                                    onClick={() => handleEditIntegration(integration)}
+                                    className="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-indigo-50 transition duration-150"
+                                >
+                                    Редактировать
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteClick(integration)}
+                                    className="text-red-600 hover:text-red-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-red-50 transition duration-150"
+                                >
+                                    Удалить
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <Modal isOpen={isIntegrationModalOpen} onClose={() => setIsIntegrationModalOpen(false)} title="Подтверждение удаления">
+                <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить интеграцию "{integrationToDelete?.name}"? Это действие необратимо.</p>
+                <div className="flex justify-end space-x-3">
+                    <button
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
+                    >
+                        Отмена
+                    </button>
+                    <button
+                        onClick={confirmDeleteIntegration}
+                        className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                    >
+                        Удалить
+                    </button>
+                </div>
+            </Modal>
+        </div>
+    );
+};
+
+
+const DashboardPage = () => {
+    const { supabase, userId } = useContext(AppContext);
+    const [deals, setDeals] = useState([]);
+    const [contacts, setContacts] = useState([]);
+    const [interactions, setInteractions] = useState([]);
+    const [statuses, setStatuses] = useState([]);
+
+
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        const fetchData = async () => {
+            try {
+                // Fetch deals
+                const { data: dealsData, error: dealsError } = await supabase
+                    .from('deals')
+                    .select('*')
+                    .eq('owner_id', userId);
+                if (dealsError) console.error("Error fetching deals for dashboard:", dealsError);
+                else setDeals(dealsData);
+
+                // Fetch contacts
+                const { data: contactsData, error: contactsError } = await supabase
+                    .from('contacts')
+                    .select('*')
+                    .eq('user_id', userId);
+                if (contactsError) console.error("Error fetching contacts for dashboard:", contactsError);
+                else setContacts(contactsData);
+
+                // Fetch interactions
+                const { data: interactionsData, error: interactionsError } = await supabase
+                    .from('interactions')
+                    .select('*')
+                    .eq('user_id', userId);
+                if (interactionsError) console.error("Error fetching interactions for dashboard:", interactionsError);
+                else setInteractions(interactionsData);
+
+                // Fetch statuses
+                const { data: statusesData, error: statusesError } = await supabase
+                    .from('deal_statuses')
+                    .select('*')
+                    .order('order_index');
+                if (statusesError) console.error("Error fetching statuses for dashboard:", statusesError);
+                else setStatuses(statusesData);
+
+            } catch (error) {
+                console.error("Error fetching dashboard data:", error);
+            }
+        };
+
+        fetchData();
+    }, [supabase, userId]);
+
+    const getTotalDeals = () => deals.length;
+    const getTotalContacts = () => contacts.length;
+    const getTotalInteractions = () => interactions.length;
+    const getTotalDealValue = () => deals.reduce((sum, deal) => sum + (deal.amount || 0), 0).toFixed(2);
+
+    const getDealsByStatus = () => {
+        const counts = {};
+        statuses.forEach(status => {
+            counts[status.name] = deals.filter(deal => deal.status_id === status.id).length;
+        });
+        return counts;
+    };
+
+    const statusCounts = getDealsByStatus();
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-6">Панель управления</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <StatCard title="Всего сделок" value={getTotalDeals()} icon="📊" />
+                <StatCard title="Общая сумма сделок" value={`$${getTotalDealValue()}`} icon="💰" />
+                <StatCard title="Всего контактов" value={getTotalContacts()} icon="👥" />
+                <StatCard title="Всего взаимодействий" value={getTotalInteractions()} icon="💬" />
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6">
+                <h3 className="text-xl font-bold text-gray-800 mb-4">Сделки по статусам</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {statuses.map(status => (
+                        <div key={status.id} className="p-4 rounded-lg flex items-center justify-between" style={{ backgroundColor: status.color, color: 'white' }}>
+                            <span className="font-semibold text-lg">{status.name}</span>
+                            <span className="text-2xl font-bold">{statusCounts[status.name] || 0}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const StatCard = ({ title, value, icon }) => (
+    <div className="bg-white rounded-xl shadow-lg p-6 flex items-center space-x-4">
+        <div className="text-5xl">{icon}</div>
+        <div>
+            <p className="text-gray-500 text-sm">{title}</p>
+            <p className="text-3xl font-bold text-gray-900">{value}</p>
+        </div>
+    </div>
+);
+
+
+// --- New Funnel Page ---
+const FunnelPage = () => {
+    const { supabase, userId } = useContext(AppContext);
+    const [deals, setDeals] = useState([]);
+    const [statuses, setStatuses] = useState([]);
+    const [isDealModalOpen, setIsDealModalOpen] = useState(false);
+    const [editingDeal, setEditingDeal] = useState(null);
+    const [contacts, setContacts] = useState([]); // Needed for DealForm
+
+    // Fetch statuses and deals
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        const statusesSubscription = supabase
+            .from('deal_statuses')
+            .select('*')
+            .order('order_index')
+            .on('*', payload => {
+                // Real-time updates for statuses
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    supabase.from('deal_statuses').select('*').order('order_index')
+                        .then(({ data, error }) => {
+                            if (error) console.error("Error re-fetching statuses:", error);
+                            else setStatuses(data);
+                        });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for statuses
+        supabase.from('deal_statuses').select('*').order('order_index')
+            .then(({ data, error }) => {
+                if (error) console.error("Error fetching initial statuses:", error);
+                else setStatuses(data);
+            });
+
+        const dealsSubscription = supabase
+            .from('deals')
+            .select('*')
+            .eq('owner_id', userId)
+            .on('*', async payload => {
+                // Real-time updates for deals
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    const { data: fetchedDeals, error } = await supabase
+                        .from('deals')
+                        .select('*')
+                        .eq('owner_id', userId);
+
+                    if (error) {
+                        console.error("Error re-fetching deals:", error);
+                        return;
+                    }
+
+                    const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
+                        if (deal.contact_ids && deal.contact_ids.length > 0) {
+                            const { data: linkedContacts, error: contactsError } = await supabase
+                                .from('contacts')
+                                .select('id, first_name, last_name, company')
+                                .in('id', deal.contact_ids);
+
+                            if (contactsError) {
+                                console.error("Error fetching linked contacts:", contactsError);
+                                return { ...deal, linkedContacts: [] };
+                            }
+                            return { ...deal, linkedContacts: linkedContacts };
+                        }
+                        return { ...deal, linkedContacts: [] };
+                    }));
+                    setDeals(dealsWithContacts);
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for deals
+        supabase.from('deals').select('*').eq('owner_id', userId)
+            .then(async ({ data: fetchedDeals, error }) => {
+                if (error) {
+                    console.error("Error fetching initial deals:", error);
+                    return;
+                }
+                const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
+                    if (deal.contact_ids && deal.contact_ids.length > 0) {
+                        const { data: linkedContacts, error: contactsError } = await supabase
+                            .from('contacts')
+                            .select('id, first_name, last_name, company')
+                            .in('id', deal.contact_ids);
+
+                        if (contactsError) {
+                            console.error("Error fetching linked contacts:", contactsError);
+                            return { ...deal, linkedContacts: [] };
+                        }
+                        return { ...deal, linkedContacts: [] };
+                    }
+                    return { ...deal, linkedContacts: [] };
+                }));
+                setDeals(dealsWithContacts);
+            });
+
+        const contactsSubscription = supabase
+            .from('contacts')
+            .select('*')
+            .eq('user_id', userId)
+            .on('*', payload => {
+                // Real-time updates for contacts
+                if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                    supabase.from('contacts').select('*').eq('user_id', userId)
+                        .then(({ data, error }) => {
+                            if (error) console.error("Error re-fetching contacts:", error);
+                            else setContacts(data);
+                        });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for contacts
+        supabase.from('contacts').select('*').eq('user_id', userId)
+            .then(({ data, error }) => {
+                if (error) console.error("Error fetching initial contacts:", error);
+                else setContacts(data);
+            });
+
+
+        return () => {
+            statusesSubscription.unsubscribe();
+            dealsSubscription.unsubscribe();
+            contactsSubscription.unsubscribe();
+        };
+    }, [supabase, userId]);
+
+    const handleDragStart = (e, dealId) => {
+        e.dataTransfer.setData("dealId", dealId);
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault(); // Necessary to allow dropping
+    };
+
+    const handleDrop = async (e, newStatusId) => {
+        e.preventDefault();
+        const dealId = e.dataTransfer.getData("dealId");
+        if (!dealId || !supabase || !userId) return;
+
+        const dealToUpdate = deals.find(d => d.id === dealId);
+        if (dealToUpdate && dealToUpdate.status_id !== newStatusId) {
+            try {
+                const { error } = await supabase
+                    .from('deals')
+                    .update({ status_id: newStatusId })
+                    .eq('id', dealId);
+                if (error) throw error;
+                console.log(`Сделка ${dealId} перемещена в статус ${newStatusId}`);
+            } catch (error) {
+                console.error("Ошибка при обновлении статуса сделки:", error);
+            }
+        }
+    };
+
+    const handleEditDeal = (deal) => {
+        setEditingDeal(deal);
+        setIsDealModalOpen(true);
+    };
+
+    const handleSaveDeal = async (dealData) => {
+        try {
+            const dealToSave = {
+                name: dealData.name,
+                amount: parseFloat(dealData.amount),
+                status_id: dealData.status_id,
+                owner_id: userId,
+                close_date: dealData.close_date || null,
+                // description: dealData.description, // Removed
+                contact_ids: dealData.contact_ids || [],
+            };
+
+            if (editingDeal) {
+                const { error } = await supabase
+                    .from('deals')
+                    .update(dealToSave)
+                    .eq('id', editingDeal.id);
+                if (error) throw error;
+                console.log("Сделка обновлена:", editingDeal.id);
+            } else {
+                const { error } = await supabase
+                    .from('deals')
+                    .insert(dealToSave);
+                if (error) throw error;
+                console.log("Новая сделка добавлена.");
+            }
+            setIsDealModalOpen(false);
+            setEditingDeal(null);
+        } catch (e) {
+            console.error("Ошибка при сохранении сделки:", e);
+        }
+    };
+
+    const getStatusName = (statusId) => {
+        const status = statuses.find(s => s.id === statusId);
+        return status ? status.name : 'Неизвестный статус';
+    };
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-6">Воронка продаж</h2>
+
+            {statuses.length === 0 ? (
+                <p className="text-center text-gray-600 text-lg mt-10">Загрузка статусов...</p>
+            ) : (
+                <div className="flex flex-col md:flex-row overflow-x-auto pb-4 space-x-6">
+                    {statuses.map(status => (
+                        <div
+                            key={status.id}
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(e, status.id)}
+                            className="bg-white rounded-xl shadow-lg flex-shrink-0 w-full md:w-80 p-4 border-t-4"
+                            style={{ borderColor: status.color || '#6B7280' }}
+                        >
+                            <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center justify-between">
+                                {status.name}
+                                <span className="text-sm font-medium text-gray-500">
+                                    ({deals.filter(d => d.status_id === status.id).length})
+                                </span>
+                            </h3>
+                            <div className="space-y-4 min-h-[100px]"> {/* min-h to make drop target visible */}
+                                {deals
+                                    .filter(deal => deal.status_id === status.id)
+                                    .map(deal => (
+                                        <div
+                                            key={deal.id}
+                                            draggable
+                                            onDragStart={(e) => handleDragStart(e, deal.id)}
+                                            className="bg-gray-50 rounded-lg shadow-sm p-4 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow duration-200 border border-gray-200"
+                                        >
+                                            <h4 className="font-semibold text-gray-800 text-lg mb-1">{deal.name}</h4>
+                                            <p className="text-gray-600 text-sm mb-1">Сумма: <span className="font-medium">${deal.amount?.toFixed(2)}</span></p>
+                                            {deal.linkedContacts && deal.linkedContacts.length > 0 && (
+                                                <p className="text-gray-500 text-xs">
+                                                    Контакты: {deal.linkedContacts.map(c => `${c.first_name} ${c.last_name}`).join(', ')}
+                                                </p>
+                                            )}
+                                            <div className="mt-3 text-right">
+                                                <button
+                                                    onClick={() => handleEditDeal(deal)}
+                                                    className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+                                                >
+                                                    Редактировать
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                {deals.filter(d => d.status_id === status.id).length === 0 && (
+                                    <p className="text-center text-gray-400 text-sm py-4">Перетащите сюда сделки</p>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <Modal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} title={editingDeal ? "Редактировать сделку" : "Новая сделка"}>
+                <DealForm
+                    deal={editingDeal}
+                    contacts={contacts}
+                    statuses={statuses}
+                    onSave={handleSaveDeal}
+                    onClose={() => setIsDealModalOpen(false)}
+                />
+            </Modal>
+        </div>
+    );
+};
+
+
+// --- New Analytics Page ---
+const AnalyticsPage = () => {
+    const { supabase, userId } = useContext(AppContext);
+    const [deals, setDeals] = useState([]);
+    const [contacts, setContacts] = useState([]);
+    const [interactions, setInteractions] = useState([]);
+    const [statuses, setStatuses] = useState([]);
+
+
+    useEffect(() => {
+        if (!supabase || !userId) return;
+
+        const fetchData = async () => {
+            try {
+                // Fetch deals
+                const { data: dealsData, error: dealsError } = await supabase
+                    .from('deals')
+                    .select('*')
+                    .eq('owner_id', userId);
+                if (dealsError) console.error("Error fetching deals for dashboard:", dealsError);
+                else setDeals(dealsData);
+
+                // Fetch contacts
+                const { data: contactsData, error: contactsError } = await supabase
+                    .from('contacts')
+                    .select('*')
+                    .eq('user_id', userId);
+                if (contactsError) console.error("Error fetching contacts for dashboard:", contactsError);
+                else setContacts(contactsData);
+
+                // Fetch interactions
+                const { data: interactionsData, error: interactionsError } = await supabase
+                    .from('interactions')
+                    .select('*')
+                    .eq('user_id', userId);
+                if (interactionsError) console.error("Error fetching interactions for dashboard:", interactionsError);
+                else setInteractions(interactionsData);
+
+                // Fetch statuses
+                const { data: statusesData, error: statusesError } = await supabase
+                    .from('deal_statuses')
+                    .select('*')
+                    .order('order_index');
+                if (statusesError) console.error("Error fetching statuses for dashboard:", statusesError);
+                else setStatuses(statusesData);
+
+            } catch (error) {
+                console.error("Error fetching analytics data:", error);
+            }
+        };
+
+        fetchData();
+    }, [supabase, userId]);
+
+    // Calculate metrics
+    const totalDeals = deals.length;
+    const totalContacts = contacts.length;
+    const totalInteractions = interactions.length;
+    const totalDealValue = deals.reduce((sum, deal) => sum + (deal.amount || 0), 0);
+
+    const dealsByStatus = statuses.map(status => ({
+        name: status.name,
+        count: deals.filter(deal => deal.status_id === status.id).length,
+        color: status.color
+    }));
+
+    const dealsWon = deals.filter(deal => {
+        const wonStatus = statuses.find(s => s.name.toLowerCase().includes('выиграна') || s.name.toLowerCase().includes('won'));
+        return wonStatus && deal.status_id === wonStatus.id;
+    }).length;
+
+    const dealsLost = deals.filter(deal => {
+        const lostStatus = statuses.find(s => s.name.toLowerCase().includes('проиграна') || s.name.toLowerCase().includes('lost'));
+        return lostStatus && deal.status_id === lostStatus.id;
+    }).length;
+
+    // Simple bar chart for deals by status (using div elements)
+    const maxStatusCount = Math.max(...dealsByStatus.map(s => s.count), 1); // Avoid division by zero
+
+    // Prepare data for new contacts over time
+    const newContactsByMonth = contacts.reduce((acc, contact) => {
+        if (contact.created_at) { // Supabase returns ISO string or Date object
+            const date = new Date(contact.created_at);
+            const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+            acc[monthYear] = (acc[monthYear] || 0) + 1;
+        }
+        return acc;
+    }, {});
+
+    const sortedContactMonths = Object.keys(newContactsByMonth).sort();
+    const contactChartData = sortedContactMonths.map(month => ({
+        month,
+        count: newContactsByMonth[month]
+    }));
+
+    const maxContactCount = Math.max(...contactChartData.map(d => d.count), 1);
+
+    return (
+        <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-6">Аналитика CRM</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <StatCard title="Всего сделок" value={totalDeals} icon="📊" />
+                <StatCard title="Общая сумма сделок" value={`$${totalDealValue.toFixed(2)}`} icon="💰" />
+                <StatCard title="Выиграно сделок" value={dealsWon} icon="✅" />
+                <StatCard title="Проиграно сделок" value={dealsLost} icon="❌" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Deals by Status Chart */}
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                    <h3 className="text-xl font-bold text-gray-800 mb-4">Сделки по статусам</h3>
+                    <div className="space-y-4">
+                        {dealsByStatus.map(status => (
+                            <div key={status.name} className="flex items-center">
+                                <span className="w-32 text-sm font-medium text-gray-700">{status.name}</span>
+                                <div className="flex-grow bg-gray-200 rounded-full h-6 relative overflow-hidden">
+                                    <div
+                                        className="h-full rounded-full flex items-center justify-end pr-2 text-white text-xs font-bold transition-all duration-500 ease-out"
+                                        style={{
+                                            width: `${(status.count / maxStatusCount) * 100}%`,
+                                            backgroundColor: status.color || '#6B7280'
+                                        }}
+                                    >
+                                        {status.count > 0 && status.count}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* New Contacts Over Time Chart */}
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                    <h3 className="text-xl font-bold text-gray-800 mb-4">Новые контакты по месяцам</h3>
+                    {contactChartData.length === 0 ? (
+                        <p className="text-center text-gray-600 py-8">Нет данных о новых контактах.</p>
+                    ) : (
+                        <div className="flex flex-col h-64 justify-end">
+                            <div className="flex items-end h-full border-b border-l border-gray-300 pb-1">
+                                {contactChartData.map((data, index) => (
+                                    <div key={index} className="flex flex-col items-center flex-grow mx-1">
+                                        <div
+                                            className="bg-indigo-500 rounded-t-md w-8 hover:bg-indigo-600 transition-colors duration-200"
+                                            style={{ height: `${(data.count / maxContactCount) * 90}%` }} // 90% of container height
+                                            title={`${data.month}: ${data.count}`}
+                                        ></div>
+                                        <span className="text-xs text-gray-600 mt-1">{data.month.split('-')[1]}</span> {/* Show only month */}
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex justify-between text-xs text-gray-500 mt-2">
+                                <span>Месяц</span>
+                                <span>Кол-во</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Interactions Summary */}
+            <div className="bg-white rounded-xl shadow-lg p-6 mt-6">
+                <h3 className="text-xl font-bold text-gray-800 mb-4">Сводка взаимодействий</h3>
+                <p className="text-gray-700">Всего зарегистрировано <span className="font-semibold text-indigo-600">{totalInteractions}</span> взаимодействий.</p>
+                {/* You can add more detailed breakdown here, e.g., by type */}
+            </div>
+        </div>
+    );
+};
+
+
+const App = () => {
+    const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard', 'deals', 'contacts', 'history', 'integrations', 'funnel', 'analytics'
+    const { userId } = useContext(AppContext);
+
+    const NavItem = ({ page, label, icon }) => (
+        <button
+            onClick={() => setCurrentPage(page)}
+            className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200
+                        ${currentPage === page ? 'bg-indigo-700 text-white shadow-md' : 'text-indigo-200 hover:bg-indigo-600 hover:text-white'}`}
+        >
+            <span className="text-2xl">{icon}</span>
+            <span className="font-medium text-lg hidden md:inline">{label}</span>
+        </button>
+    );
+
+    return (
+        <div className="min-h-screen bg-gray-100 font-sans text-gray-900 flex flex-col md:flex-row">
+            {/* Supabase CDN - Moved here to ensure it's loaded before React tries to use it */}
+            <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+            {/* Tailwind CSS CDN */}
+            <script src="https://cdn.tailwindcss.com"></script>
+            {/* Font Inter */}
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+            <style>
+                {`
+                body {
+                    font-family: 'Inter', sans-serif;
+                }
+                /* Custom scrollbar for modals */
+                .max-h-[70vh]::-webkit-scrollbar {
+                    width: 8px;
+                }
+                .max-h-[70vh]::-webkit-scrollbar-track {
+                    background: #f1f1f1;
+                    border-radius: 10px;
+                }
+                .max-h-[70vh]::-webkit-scrollbar-thumb {
+                    background: #888;
+                    border-radius: 10px;
+                }
+                .max-h-[70vh]::-webkit-scrollbar-thumb:hover {
+                    background: #555;
+                }
+                /* Custom scrollbar for funnel columns */
+                .overflow-x-auto::-webkit-scrollbar {
+                    height: 8px;
+                }
+                .overflow-x-auto::-webkit-scrollbar-track {
+                    background: #e0e0e0;
+                    border-radius: 10px;
+                }
+                .overflow-x-auto::-webkit-scrollbar-thumb {
+                    background: #a0a0a0;
+                    border-radius: 10px;
+                }
+                .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+                    background: #707070;
+                }
+                `}
+            </style>
+
+            {/* Sidebar / Navigation */}
+            <nav className="bg-indigo-800 text-white p-4 md:p-6 flex flex-row md:flex-col items-center md:items-stretch justify-around md:justify-start shadow-xl md:shadow-none md:w-64 flex-shrink-0">
+                <div className="text-3xl font-extrabold mb-0 md:mb-10 text-center hidden md:block">
+                    CRM 2025
+                </div>
+                <div className="flex flex-row md:flex-col space-x-4 md:space-x-0 md:space-y-4 w-full justify-center md:justify-start">
+                    <NavItem page="dashboard" label="Панель управления" icon="🏠" />
+                    <NavItem page="deals" label="Сделки" icon="🤝" />
+                    <NavItem page="funnel" label="Воронка" icon="📈" /> {/* New Nav Item */}
+                    <NavItem page="contacts" label="Контакты" icon="👤" />
+                    <NavItem page="history" label="История" icon="📚" />
+                    <NavItem page="integrations" label="Интеграции" icon="🔌" />
+                    <NavItem page="analytics" label="Аналитика" icon="📊" /> {/* New Nav Item */}
+                </div>
+                <div className="mt-auto pt-6 text-sm text-indigo-300 hidden md:block">
+                    <p className="text-center">Ваш ID пользователя:</p>
+                    <p className="text-center break-all font-mono text-xs">{userId || 'Загрузка...'}</p>
+                </div>
+            </nav>
+
+            {/* Main Content Area */}
+            <main className="flex-grow p-4 md:p-8">
+                {currentPage === 'dashboard' && <DashboardPage />}
+                {currentPage === 'deals' && <DealsPage />}
+                {currentPage === 'funnel' && <FunnelPage />} {/* Render Funnel Page */}
+                {currentPage === 'contacts' && <ContactsPage />}
+                {currentPage === 'history' && <HistoryPage />}
+                {currentPage === 'integrations' && <IntegrationsPage />}
+                {currentPage === 'analytics' && <AnalyticsPage />} {/* Render Analytics Page */}
+            </main>
+        </div>
+    );
+};
+
+export default function AppWrapper() {
+    return (
+        <AppProvider>
+            <App />
+        </AppProvider>
+    );
+}

@@ -72,16 +72,16 @@
              *
              * Чтобы это приложение работало, вам нужно настроить RLS-политики
              * в панели управления Supabase для каждой таблицы (public.user, public.contacts,
-             * public.deal_statuses, public.deals, public.deal_contacts, public.interactions, public.integrations).
+             * public.deal_statuses, public.deals, public.deal_contacts, public.interactions, public.integrations, public.deal_audit_logs, public.tags, public.deal_tags).
              *
              * Пример политик, которые вам могут понадобиться:
              *
-             * 1. Для таблиц, где пользователи видят только свои данные (contacts, deals, interactions, integrations):
+             * 1. Для таблиц, где пользователи видят только свои данные (contacts, deals, interactions, integrations, deal_audit_logs, tags, deal_tags):
              * - Включите RLS для таблицы.
              * - Создайте политику "SELECT":
              * Name: "Allow users to read their own data"
              * For: SELECT
-             * Using expression: auth.uid() = user_id  (или owner_id для таблицы deals)
+             * Using expression: auth.uid() = user_id  (или owner_id для таблицы deals, или user_id для deal_audit_logs, tags)
              * Roles: authenticated, anon (если вы хотите, чтобы анонимные пользователи могли видеть свои данные)
              * - Создайте политику "INSERT":
              * Name: "Allow users to insert their own data"
@@ -130,7 +130,7 @@
                 console.log("Supabase: Попытка инициализации клиента...");
                 try {
                     const supabaseUrl = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
-                    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
+                    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdjhhUNuxxLLGP8';
 
                     if (!supabaseUrl || !supabaseAnonKey) {
                         setError("Supabase URL или Anon Key отсутствуют. Пожалуйста, убедитесь, что они предоставлены.");
@@ -344,24 +344,24 @@
 
         // --- Pages/Components ---
 
-        const DealForm = ({ deal, contacts, statuses, onSave, onClose }) => {
+        const DealForm = ({ deal, contacts, statuses, tags, onSave, onClose }) => {
             const [formData, setFormData] = useState(deal || {
                 name: '',
                 amount: '',
                 status_id: '',
                 owner_id: '', // This should be current user's ID
                 close_date: '',
-                // description: '', // Removed as per user request
-                contact_ids: [] // For linking contacts
+                contact_ids: [], // For linking contacts
+                tag_ids: [] // For linking tags
             });
 
             useEffect(() => {
                 if (deal) {
                     setFormData({
                         ...deal,
-                        // Convert date string to ISO string for date input
                         close_date: deal.close_date ? new Date(deal.close_date).toISOString().split('T')[0] : '',
-                        contact_ids: deal.contact_ids || []
+                        contact_ids: deal.contact_ids || [],
+                        tag_ids: deal.tag_ids || [] // Initialize tag_ids from deal
                     });
                 }
             }, [deal]);
@@ -377,6 +377,14 @@
                     .filter(option => option.selected)
                     .map(option => option.value);
                 setFormData(prev => ({ ...prev, contact_ids: selectedContacts }));
+            };
+
+            const handleTagChange = (e) => {
+                const { options } = e.target;
+                const selectedTags = Array.from(options)
+                    .filter(option => option.selected)
+                    .map(option => option.value);
+                setFormData(prev => ({ ...prev, tag_ids: selectedTags }));
             };
 
             const handleSubmit = (e) => {
@@ -396,7 +404,6 @@
                         options={[{ value: '', label: 'Выберите статус' }, ...statuses.map(s => ({ value: s.id, label: s.name }))]}
                     />
                     <InputField label="Дата закрытия" id="close_date" type="date" value={formData.close_date} onChange={handleChange} />
-                    {/* <TextAreaField label="Описание" id="description" value={formData.description} onChange={handleChange} placeholder="Подробное описание сделки" /> */}
 
                     <div className="mb-4">
                         <label htmlFor="contact_ids" className="block text-sm font-medium text-gray-700 mb-1">
@@ -418,9 +425,29 @@
                         </select>
                     </div>
 
+                    <div className="mb-4">
+                        <label htmlFor="tag_ids" className="block text-sm font-medium text-gray-700 mb-1">
+                            Теги
+                        </label>
+                        <select
+                            id="tag_ids"
+                            name="tag_ids"
+                            multiple
+                            value={formData.tag_ids}
+                            onChange={handleTagChange}
+                            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition duration-150 ease-in-out h-32"
+                        >
+                            {tags.map(tag => (
+                                <option key={tag.id} value={tag.id}>
+                                    {tag.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
                     <div className="flex justify-end space-x-3 mt-6">
                         <button
-                            type="button" // Добавлено type="button"
+                            type="button"
                             onClick={onClose}
                             className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
                         >
@@ -474,7 +501,7 @@
 
                     <div className="flex justify-end space-x-3 mt-6">
                         <button
-                            type="button" // Добавлено type="button"
+                            type="button"
                             onClick={onClose}
                             className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
                         >
@@ -496,24 +523,25 @@
             const [deals, setDeals] = useState([]);
             const [contacts, setContacts] = useState([]);
             const [statuses, setStatuses] = useState([]);
+            const [tags, setTags] = useState([]); // New state for tags
             const [isDealModalOpen, setIsDealModalOpen] = useState(false);
             const [editingDeal, setEditingDeal] = useState(null);
             const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
             const [dealToDelete, setDealToDelete] = useState(null);
             const [filterStatus, setFilterStatus] = useState('all');
 
+            const { setCurrentPage, setSelectedDealId } = useContext(AppRouterContext); // Assuming AppRouterContext is available
 
             useEffect(() => {
                 if (!supabase || !userId) return;
 
                 // --- Real-time subscription for statuses ---
-                const statusesChannel = supabase.channel('deal_statuses_changes') // Уникальное имя канала
+                const statusesChannel = supabase.channel('deal_statuses_changes_deals_page') // Уникальное имя канала
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'deal_statuses' },
                         payload => {
                             console.log("Real-time update for deal_statuses:", payload);
-                            // Re-fetch all statuses to ensure correct order after changes
                             supabase.from('deal_statuses').select('*').order('order_index')
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching statuses:", error);
@@ -553,6 +581,29 @@
                         else setContacts(data);
                     });
 
+                // --- Real-time subscription for tags ---
+                const tagsChannel = supabase.channel('tags_changes_deals_page')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'tags' },
+                        payload => {
+                            console.log("Real-time update for tags on DealsPage:", payload);
+                            supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`) // Fetch user-specific or global tags
+                                .then(({ data, error }) => {
+                                    if (error) console.error("Error re-fetching tags:", error);
+                                    else setTags(data);
+                                });
+                        }
+                    )
+                    .subscribe();
+
+                // Initial fetch for tags
+                supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`)
+                    .then(({ data, error }) => {
+                        if (error) console.error("Error fetching initial tags:", error);
+                        else setTags(data);
+                    });
+
 
                 // --- Real-time subscription for deals ---
                 const dealsChannel = supabase.channel('deals_changes') // Уникальное имя канала
@@ -571,23 +622,27 @@
                                 return;
                             }
 
-                            // Fetch linked contacts for each deal (Supabase doesn't auto-join arrays like Firestore)
-                            const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
-                                if (deal.contact_ids && deal.contact_ids.length > 0) {
-                                    const { data: linkedContacts, error: contactsError } = await supabase
-                                        .from('contacts')
-                                        .select('id, first_name, last_name, company')
-                                        .in('id', deal.contact_ids);
+                            // Fetch linked contacts and tags for each deal
+                            const dealsWithRelatedData = await Promise.all(fetchedDeals.map(async (deal) => {
+                                const linkedContacts = (deal.contact_ids && deal.contact_ids.length > 0)
+                                    ? (await supabase.from('contacts').select('id, first_name, last_name, company').in('id', deal.contact_ids)).data || []
+                                    : [];
+                                
+                                // Fetch tags linked via deal_tags table
+                                const { data: dealTagsData, error: dealTagsError } = await supabase
+                                    .from('deal_tags')
+                                    .select('tag_id, tags(id, name)') // Select tag_id and join tags table to get name
+                                    .eq('deal_id', deal.id);
 
-                                    if (contactsError) {
-                                        console.error("Error fetching linked contacts:", contactsError);
-                                        return { ...deal, linkedContacts: [] };
-                                    }
-                                    return { ...deal, linkedContacts: linkedContacts };
+                                if (dealTagsError) {
+                                    console.error("Error fetching linked tags for deal:", dealTagsError);
                                 }
-                                return { ...deal, linkedContacts: [] };
+                                
+                                const linkedTags = dealTagsData ? dealTagsData.map(dt => dt.tags) : [];
+
+                                return { ...deal, linkedContacts: linkedContacts, linkedTags: linkedTags };
                             }));
-                            setDeals(dealsWithContacts);
+                            setDeals(dealsWithRelatedData);
                         }
                     )
                     .subscribe();
@@ -599,48 +654,48 @@
                             console.error("Error fetching initial deals:", error);
                             return;
                         }
-                        const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
-                            if (deal.contact_ids && deal.contact_ids.length > 0) {
-                                const { data: linkedContacts, error: contactsError } = await supabase
-                                    .from('contacts')
-                                    .select('id, first_name, last_name, company')
-                                    .in('id', deal.contact_ids);
+                        const dealsWithRelatedData = await Promise.all(fetchedDeals.map(async (deal) => {
+                            const linkedContacts = (deal.contact_ids && deal.contact_ids.length > 0)
+                                ? (await supabase.from('contacts').select('id, first_name, last_name, company').in('id', deal.contact_ids)).data || []
+                                : [];
 
-                                if (contactsError) {
-                                    console.error("Error fetching linked contacts:", contactsError);
-                                    // Fallback to empty array to avoid breaking the app
-                                    return { ...deal, linkedContacts: [] };
-                                }
-                                return { ...deal, linkedContacts: linkedContacts };
+                            const { data: dealTagsData, error: dealTagsError } = await supabase
+                                .from('deal_tags')
+                                .select('tag_id, tags(id, name)')
+                                .eq('deal_id', deal.id);
+
+                            if (dealTagsError) {
+                                console.error("Error fetching linked tags for deal:", dealTagsError);
                             }
-                            return { ...deal, linkedContacts: [] };
+                            const linkedTags = dealTagsData ? dealTagsData.map(dt => dt.tags) : [];
+                            
+                            return { ...deal, linkedContacts: linkedContacts, linkedTags: linkedTags };
                         }));
-                        setDeals(dealsWithContacts);
+                        setDeals(dealsWithRelatedData);
                     });
 
 
                 return () => {
                     statusesChannel.unsubscribe();
-                    contactsChannel.unsubscribe(); // Unsubscribe from contacts channel
+                    contactsChannel.unsubscribe();
+                    tagsChannel.unsubscribe(); // Unsubscribe from tags channel
                     dealsChannel.unsubscribe();
                 };
             }, [supabase, userId]); // Depend on supabase and userId
 
             const handleSaveDeal = async (dealData) => {
                 try {
+                    const { tag_ids, ...dealFields } = dealData; // Extract tag_ids
                     const dealToSave = {
-                        name: dealData.name,
-                        amount: parseFloat(dealData.amount),
-                        status_id: dealData.status_id,
+                        name: dealFields.name,
+                        amount: parseFloat(dealFields.amount),
+                        status_id: dealFields.status_id,
                         owner_id: userId,
-                        // Supabase DATE type expects 'YYYY-MM-DD' string
-                        close_date: dealData.close_date || null,
-                        // description: dealData.description, // Removed
-                        // Убедись, что колонка contact_ids в таблице deals имеет тип jsonb или text[] (массив UUID/текста).
-                        // Если тип jsonb, то нужно использовать JSON.stringify(dealData.contact_ids || [])
-                        // Если тип text[] или uuid[], то можно передавать массив напрямую.
-                        contact_ids: dealData.contact_ids || [], 
+                        close_date: dealFields.close_date || null,
+                        contact_ids: dealFields.contact_ids || [], 
                     };
+
+                    let currentDealId = editingDeal ? editingDeal.id : null;
 
                     if (editingDeal) {
                         // Update existing deal
@@ -652,12 +707,37 @@
                         console.log("Сделка обновлена:", editingDeal.id);
                     } else {
                         // Add new deal
-                        const { error } = await supabase
+                        const { data, error } = await supabase
                             .from('deals')
-                            .insert(dealToSave);
+                            .insert(dealToSave)
+                            .select('id'); // Select the ID of the newly inserted deal
                         if (error) throw error;
-                        console.log("Новая сделка добавлена.");
+                        currentDealId = data[0].id; // Get the ID of the new deal
+                        console.log("Новая сделка добавлена с ID:", currentDealId);
                     }
+
+                    // Handle tags (delete existing and insert new ones)
+                    if (currentDealId) {
+                        // First, delete all existing tags for this deal
+                        const { error: deleteTagsError } = await supabase
+                            .from('deal_tags')
+                            .delete()
+                            .eq('deal_id', currentDealId);
+                        if (deleteTagsError) console.error("Error deleting old deal tags:", deleteTagsError);
+
+                        // Then, insert new tags
+                        if (tag_ids && tag_ids.length > 0) {
+                            const newDealTags = tag_ids.map(tagId => ({
+                                deal_id: currentDealId,
+                                tag_id: tagId
+                            }));
+                            const { error: insertTagsError } = await supabase
+                                .from('deal_tags')
+                                .insert(newDealTags);
+                            if (insertTagsError) console.error("Error inserting new deal tags:", insertTagsError);
+                        }
+                    }
+
                     setIsDealModalOpen(false);
                     setEditingDeal(null);
                 } catch (e) {
@@ -689,6 +769,11 @@
                 } catch (e) {
                     console.error("Ошибка при удалении сделки:", e);
                 }
+            };
+
+            const handleViewDealDetails = (dealId) => {
+                setSelectedDealId(dealId);
+                setCurrentPage('dealDetails');
             };
 
             const getStatusName = (statusId) => {
@@ -757,9 +842,26 @@
                                                 </ul>
                                             </div>
                                         )}
-                                        {/* <p className="text-gray-500 text-sm mt-3 line-clamp-2">{deal.description}</p> */}
+                                        {deal.linkedTags && deal.linkedTags.length > 0 && (
+                                            <div className="mt-3">
+                                                <p className="text-sm font-medium text-gray-700 mb-1">Теги:</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {deal.linkedTags.map(tag => (
+                                                        <span key={tag.id} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                                                            {tag.name}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="bg-gray-50 border-t border-gray-100 px-6 py-4 flex justify-end space-x-2">
+                                        <button
+                                            onClick={() => handleViewDealDetails(deal.id)}
+                                            className="text-gray-600 hover:text-gray-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-gray-100 transition duration-150"
+                                        >
+                                            Детали
+                                        </button>
                                         <button
                                             onClick={() => handleEditDeal(deal)}
                                             className="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-indigo-50 transition duration-150"
@@ -783,6 +885,7 @@
                             deal={editingDeal}
                             contacts={contacts}
                             statuses={statuses}
+                            tags={tags} // Pass tags to DealForm
                             onSave={handleSaveDeal}
                             onClose={() => setIsDealModalOpen(false)}
                         />
@@ -813,6 +916,7 @@
 
         const ContactsPage = () => {
             const { supabase, userId } = useContext(AppContext);
+            const { setCurrentPage, setSelectedContactId } = useContext(AppRouterContext); // Assuming AppRouterContext is available
             const [contacts, setContacts] = useState([]);
             const [isContactModalOpen, setIsContactModalOpen] = useState(false);
             const [editingContact, setEditingContact] = useState(null);
@@ -851,15 +955,11 @@
 
             const handleSaveContact = async (contactData) => {
                 try {
+                    // Ensure 'name' is derived from first_name and last_name if not explicitly set
                     const contactToSave = {
-                        first_name: contactData.first_name, // Используем first_name
-                        last_name: contactData.last_name,   // Используем last_name
-                        email: contactData.email,
-                        phone: contactData.phone,
-                        company: contactData.company,
-                        title: contactData.title,
+                        ...contactData,
+                        name: `${contactData.first_name || ''} ${contactData.last_name || ''}`.trim(), // Derive 'name'
                         user_id: userId,
-                        // created_at and updated_at are handled by database defaults/triggers
                     };
 
                     if (editingContact) {
@@ -911,6 +1011,11 @@
                 }
             };
 
+            const handleViewContactDetails = (contactId) => {
+                setSelectedContactId(contactId);
+                setCurrentPage('contactDetails');
+            };
+
             return (
                 <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
                     <div className="flex justify-between items-center mb-6">
@@ -938,6 +1043,12 @@
                                         <p className="text-gray-600">Телефон: <a href={`tel:${contact.phone}`} className="text-indigo-600 hover:underline">{contact.phone || 'N/A'}</a></p>
                                     </div>
                                     <div className="bg-gray-50 border-t border-gray-100 px-6 py-4 flex justify-end space-x-2">
+                                        <button
+                                            onClick={() => handleViewContactDetails(contact.id)}
+                                            className="text-gray-600 hover:text-gray-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-gray-100 transition duration-150"
+                                        >
+                                            Детали
+                                        </button>
                                         <button
                                             onClick={() => handleEditContact(contact)}
                                             className="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-indigo-50 transition duration-150"
@@ -968,14 +1079,14 @@
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить контакт "{contactToDelete?.first_name} {contactToDelete?.last_name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
-                                type="button" // Добавлено type="button"
+                                type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
                             >
                                 Отмена
                             </button>
                             <button
-                                type="button" // Добавлено type="button"
+                                type="button"
                                 onClick={confirmDeleteContact}
                                 className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
                             >
@@ -1009,7 +1120,7 @@
                     // Fetch contacts
                     const { data: contactsData, error: contactsError } = await supabase
                         .from('contacts')
-                        .select('id, first_name, last_name') // Запрашиваем first_name и last_name
+                        .select('id, first_name, last_name')
                         .eq('user_id', userId);
                     if (contactsError) console.error("Error fetching contacts for history:", contactsError);
                     else setContacts(contactsData);
@@ -1050,7 +1161,7 @@
 
             const getContactName = (contactId) => {
                 const contact = contacts.find(c => c.id === contactId);
-                return contact ? `${contact.first_name} ${contact.last_name}` : 'Неизвестный контакт'; // Используем first_name и last_name
+                return contact ? `${contact.first_name} ${contact.last_name}` : 'Неизвестный контакт';
             };
 
             return (
@@ -1069,7 +1180,6 @@
                                             {interaction.interaction_date ? new Date(interaction.interaction_date).toLocaleString() : 'N/A'}
                                         </span>
                                     </div>
-                                    {/* <p className="text-gray-800 mb-3">{interaction.notes}</p> */} {/* Removed as per user request */}
                                     {(interaction.deal_id || interaction.contact_id) && (
                                         <div className="text-sm text-gray-600">
                                             {interaction.deal_id && (
@@ -1240,7 +1350,7 @@
 
                         <div className="flex justify-end space-x-3 mt-6">
                             <button
-                                type="button" // Добавлено type="button"
+                                type="button"
                                 onClick={onClose}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
                             >
@@ -1308,14 +1418,14 @@
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить интеграцию "{integrationToDelete?.name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
-                                type="button" // Добавлено type="button"
+                                type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
                             >
                                 Отмена
                             </button>
                             <button
-                                type="button" // Добавлено type="button"
+                                type="button"
                                 onClick={confirmDeleteIntegration}
                                 className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
                             >
@@ -1369,7 +1479,7 @@
                         const { data: statusesData, error: statusesError } = await supabase
                             .from('deal_statuses')
                             .select('*')
-                            .order('order_index'); // Убедитесь, что order_index существует в БД
+                            .order('order_index');
                         if (statusesError) console.error("Error fetching statuses for dashboard:", statusesError);
                         else setStatuses(statusesData);
 
@@ -1436,8 +1546,10 @@
         // --- New Funnel Page ---
         const FunnelPage = () => {
             const { supabase, userId } = useContext(AppContext);
+            const { setCurrentPage, setSelectedDealId } = useContext(AppRouterContext); // Assuming AppRouterContext is available
             const [deals, setDeals] = useState([]);
             const [statuses, setStatuses] = useState([]);
+            const [tags, setTags] = useState([]); // New state for tags
             const [isDealModalOpen, setIsDealModalOpen] = useState(false);
             const [editingDeal, setEditingDeal] = useState(null);
             const [contacts, setContacts] = useState([]); // Needed for DealForm
@@ -1469,68 +1581,6 @@
                         else setStatuses(data);
                     });
 
-                // --- Real-time subscription for deals ---
-                const dealsChannel = supabase.channel('deals_changes_funnel_page') // Уникальное имя канала
-                    .on(
-                        'postgres_changes',
-                        { event: '*', schema: 'public', table: 'deals' },
-                        async payload => {
-                            console.log("Real-time update for deals on FunnelPage:", payload);
-                            const { data: fetchedDeals, error } = await supabase
-                                .from('deals')
-                                .select('*')
-                                .eq('owner_id', userId);
-
-                            if (error) {
-                                console.error("Error re-fetching deals for FunnelPage:", error);
-                                return;
-                            }
-
-                            const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
-                                if (deal.contact_ids && deal.contact_ids.length > 0) {
-                                    const { data: linkedContacts, error: contactsError } = await supabase
-                                        .from('contacts')
-                                        .select('id, first_name, last_name, company')
-                                        .in('id', deal.contact_ids);
-
-                                    if (contactsError) {
-                                        console.error("Error fetching linked contacts for FunnelPage:", contactsError);
-                                        return { ...deal, linkedContacts: [] };
-                                    }
-                                    return { ...deal, linkedContacts: linkedContacts };
-                                }
-                                return { ...deal, linkedContacts: [] };
-                            }));
-                            setDeals(dealsWithContacts);
-                        }
-                    )
-                    .subscribe();
-
-                // Initial fetch for deals
-                supabase.from('deals').select('*').eq('owner_id', userId)
-                    .then(async ({ data: fetchedDeals, error }) => {
-                        if (error) {
-                            console.error("Error fetching initial deals for FunnelPage:", error);
-                            return;
-                        }
-                        const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
-                            if (deal.contact_ids && deal.contact_ids.length > 0) {
-                                const { data: linkedContacts, error: contactsError } = await supabase
-                                    .from('contacts')
-                                    .select('id, first_name, last_name, company')
-                                    .in('id', deal.contact_ids);
-
-                                if (contactsError) {
-                                    console.error("Error fetching linked contacts for FunnelPage:", contactsError);
-                                    return { ...deal, linkedContacts: [] };
-                                }
-                                return { ...deal, linkedContacts: [] };
-                            }
-                            return { ...deal, linkedContacts: [] };
-                        }));
-                        setDeals(dealsWithContacts);
-                    });
-
                 // --- Real-time subscription for contacts ---
                 const contactsChannel = supabase.channel('contacts_changes_funnel_page') // Уникальное имя канала
                     .on(
@@ -1554,11 +1604,101 @@
                         else setContacts(data);
                     });
 
+                // --- Real-time subscription for tags ---
+                const tagsChannel = supabase.channel('tags_changes_funnel_page')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'tags' },
+                        payload => {
+                            console.log("Real-time update for tags on FunnelPage:", payload);
+                            supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`)
+                                .then(({ data, error }) => {
+                                    if (error) console.error("Error re-fetching tags:", error);
+                                    else setTags(data);
+                                });
+                        }
+                    )
+                    .subscribe();
+
+                // Initial fetch for tags
+                supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`)
+                    .then(({ data, error }) => {
+                        if (error) console.error("Error fetching initial tags:", error);
+                        else setTags(data);
+                    });
+
+
+                // --- Real-time subscription for deals ---
+                const dealsChannel = supabase.channel('deals_changes_funnel_page') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'deals' },
+                        async payload => {
+                            console.log("Real-time update for deals on FunnelPage:", payload);
+                            const { data: fetchedDeals, error } = await supabase
+                                .from('deals')
+                                .select('*')
+                                .eq('owner_id', userId);
+
+                            if (error) {
+                                console.error("Error re-fetching deals for FunnelPage:", error);
+                                return;
+                            }
+
+                            const dealsWithRelatedData = await Promise.all(fetchedDeals.map(async (deal) => {
+                                const linkedContacts = (deal.contact_ids && deal.contact_ids.length > 0)
+                                    ? (await supabase.from('contacts').select('id, first_name, last_name, company').in('id', deal.contact_ids)).data || []
+                                    : [];
+                                
+                                const { data: dealTagsData, error: dealTagsError } = await supabase
+                                    .from('deal_tags')
+                                    .select('tag_id, tags(id, name)')
+                                    .eq('deal_id', deal.id);
+
+                                if (dealTagsError) {
+                                    console.error("Error fetching linked tags for deal:", dealTagsError);
+                                }
+                                const linkedTags = dealTagsData ? dealTagsData.map(dt => dt.tags) : [];
+
+                                return { ...deal, linkedContacts: linkedContacts, linkedTags: linkedTags };
+                            }));
+                            setDeals(dealsWithRelatedData);
+                        }
+                    )
+                    .subscribe();
+
+                // Initial fetch for deals
+                supabase.from('deals').select('*').eq('owner_id', userId)
+                    .then(async ({ data: fetchedDeals, error }) => {
+                        if (error) {
+                            console.error("Error fetching initial deals for FunnelPage:", error);
+                            return;
+                        }
+                        const dealsWithRelatedData = await Promise.all(fetchedDeals.map(async (deal) => {
+                            const linkedContacts = (deal.contact_ids && deal.contact_ids.length > 0)
+                                ? (await supabase.from('contacts').select('id, first_name, last_name, company').in('id', deal.contact_ids)).data || []
+                                : [];
+
+                            const { data: dealTagsData, error: dealTagsError } = await supabase
+                                .from('deal_tags')
+                                .select('tag_id, tags(id, name)')
+                                .eq('deal_id', deal.id);
+
+                            if (dealTagsError) {
+                                console.error("Error fetching linked tags for deal:", dealTagsError);
+                            }
+                            const linkedTags = dealTagsData ? dealTagsData.map(dt => dt.tags) : [];
+                            
+                            return { ...deal, linkedContacts: linkedContacts, linkedTags: linkedTags };
+                        }));
+                        setDeals(dealsWithRelatedData);
+                    });
 
                 return () => {
                     statusesChannel.unsubscribe();
-                    dealsChannel.unsubscribe();
                     contactsChannel.unsubscribe();
+                    tagsChannel.unsubscribe();
+                    dealsChannel.unsubscribe();
                 };
             }, [supabase, userId]);
 
@@ -1597,18 +1737,17 @@
 
             const handleSaveDeal = async (dealData) => {
                 try {
+                    const { tag_ids, ...dealFields } = dealData; // Extract tag_ids
                     const dealToSave = {
-                        name: dealData.name,
-                        amount: parseFloat(dealData.amount),
-                        status_id: dealData.status_id,
+                        name: dealFields.name,
+                        amount: parseFloat(dealFields.amount),
+                        status_id: dealFields.status_id,
                         owner_id: userId,
-                        close_date: dealData.close_date || null,
-                        // description: dealData.description, // Removed
-                        // Убедись, что колонка contact_ids в таблице deals имеет тип jsonb или text[] (массив UUID/текста).
-                        // Если тип jsonb, то нужно использовать JSON.stringify(dealData.contact_ids || [])
-                        // Если тип text[] или uuid[], то можно передавать массив напрямую.
-                        contact_ids: dealData.contact_ids || [], 
+                        close_date: dealFields.close_date || null,
+                        contact_ids: dealFields.contact_ids || [], 
                     };
+
+                    let currentDealId = editingDeal ? editingDeal.id : null;
 
                     if (editingDeal) {
                         const { error } = await supabase
@@ -1618,17 +1757,45 @@
                         if (error) throw error;
                         console.log("Сделка обновлена:", editingDeal.id);
                     } else {
-                        const { error } = await supabase
+                        const { data, error } = await supabase
                             .from('deals')
-                            .insert(dealToSave);
+                            .insert(dealToSave)
+                            .select('id');
                         if (error) throw error;
-                        console.log("Новая сделка добавлена.");
+                        currentDealId = data[0].id;
+                        console.log("Новая сделка добавлена с ID:", currentDealId);
                     }
+
+                    // Handle tags (delete existing and insert new ones)
+                    if (currentDealId) {
+                        const { error: deleteTagsError } = await supabase
+                            .from('deal_tags')
+                            .delete()
+                            .eq('deal_id', currentDealId);
+                        if (deleteTagsError) console.error("Error deleting old deal tags:", deleteTagsError);
+
+                        if (tag_ids && tag_ids.length > 0) {
+                            const newDealTags = tag_ids.map(tagId => ({
+                                deal_id: currentDealId,
+                                tag_id: tagId
+                            }));
+                            const { error: insertTagsError } = await supabase
+                                .from('deal_tags')
+                                .insert(newDealTags);
+                            if (insertTagsError) console.error("Error inserting new deal tags:", insertTagsError);
+                        }
+                    }
+
                     setIsDealModalOpen(false);
                     setEditingDeal(null);
                 } catch (e) {
                     console.error("Ошибка при сохранении сделки:", e);
                 }
+            };
+
+            const handleViewDealDetails = (dealId) => {
+                setSelectedDealId(dealId);
+                setCurrentPage('dealDetails');
             };
 
             const getStatusName = (statusId) => {
@@ -1675,7 +1842,22 @@
                                                             Контакты: {deal.linkedContacts.map(c => `${c.first_name} ${c.last_name}`).join(', ')}
                                                         </p>
                                                     )}
+                                                    {deal.linkedTags && deal.linkedTags.length > 0 && (
+                                                        <div className="mt-2 flex flex-wrap gap-1">
+                                                            {deal.linkedTags.map(tag => (
+                                                                <span key={tag.id} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                                                                    {tag.name}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                     <div className="mt-3 text-right">
+                                                        <button
+                                                            onClick={() => handleViewDealDetails(deal.id)}
+                                                            className="text-gray-600 hover:text-gray-800 text-sm font-medium mr-2"
+                                                        >
+                                                            Детали
+                                                        </button>
                                                         <button
                                                             onClick={() => handleEditDeal(deal)}
                                                             className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
@@ -1698,6 +1880,7 @@
                             deal={editingDeal}
                             contacts={contacts}
                             statuses={statuses}
+                            tags={tags} // Pass tags to DealForm
                             onSave={handleSaveDeal}
                             onClose={() => setIsDealModalOpen(false)}
                         />
@@ -1749,7 +1932,7 @@
                         const { data: statusesData, error: statusesError } = await supabase
                             .from('deal_statuses')
                             .select('*')
-                            .order('order_index'); // Убедитесь, что order_index существует в БД
+                            .order('order_index');
                         if (statusesError) console.error("Error fetching statuses for dashboard:", statusesError);
                         else setStatuses(statusesData);
 
@@ -1875,14 +2058,391 @@
             );
         };
 
+        // --- New Contact Details Page ---
+        const ContactDetailsPage = ({ contactId, onBack }) => {
+            const { supabase, userId } = useContext(AppContext);
+            const [contact, setContact] = useState(null);
+            const [linkedDeals, setLinkedDeals] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [statuses, setStatuses] = useState([]); // To display deal status names
+
+            useEffect(() => {
+                if (!supabase || !userId || !contactId) {
+                    setLoading(false);
+                    return;
+                }
+
+                const fetchData = async () => {
+                    setLoading(true);
+                    setError(null);
+                    try {
+                        // Fetch contact details
+                        const { data: contactData, error: contactError } = await supabase
+                            .from('contacts')
+                            .select('*')
+                            .eq('id', contactId)
+                            .single();
+
+                        if (contactError) {
+                            console.error("Error fetching contact details:", contactError);
+                            setError("Не удалось загрузить детали контакта.");
+                            setLoading(false);
+                            return;
+                        }
+                        setContact(contactData);
+
+                        // Fetch deals linked to this contact
+                        // We need to find deals where contact_ids (jsonb array) contains contactId
+                        const { data: dealsData, error: dealsError } = await supabase
+                            .from('deals')
+                            .select('*')
+                            .eq('owner_id', userId); // Only deals owned by current user
+
+                        if (dealsError) {
+                            console.error("Error fetching linked deals:", dealsError);
+                            setError("Не удалось загрузить связанные сделки.");
+                            setLoading(false);
+                            return;
+                        }
+
+                        // Filter deals that contain this contactId in their contact_ids array
+                        const filteredDeals = dealsData.filter(deal => 
+                            deal.contact_ids && Array.isArray(deal.contact_ids) && deal.contact_ids.includes(contactId)
+                        );
+                        setLinkedDeals(filteredDeals);
+
+                        // Fetch statuses for deal names
+                        const { data: statusesData, error: statusesError } = await supabase
+                            .from('deal_statuses')
+                            .select('id, name, color')
+                            .order('order_index');
+                        if (statusesError) console.error("Error fetching statuses for contact details:", statusesError);
+                        else setStatuses(statusesData);
+
+                    } catch (err) {
+                        console.error("Unexpected error in ContactDetailsPage:", err);
+                        setError("Произошла непредвиденная ошибка.");
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+
+                fetchData();
+            }, [supabase, userId, contactId]);
+
+            const getStatusName = (statusId) => {
+                const status = statuses.find(s => s.id === statusId);
+                return status ? status.name : 'Неизвестный статус';
+            };
+
+            const getStatusColor = (statusId) => {
+                const status = statuses.find(s => s.id === statusId);
+                return status ? status.color : '#6B7280'; // Default gray
+            };
+
+            if (loading) {
+                return <div className="p-6 text-center text-gray-600">Загрузка деталей контакта...</div>;
+            }
+
+            if (error) {
+                return <div className="p-6 text-center text-red-600">Ошибка: {error}</div>;
+            }
+
+            if (!contact) {
+                return <div className="p-6 text-center text-gray-600">Контакт не найден.</div>;
+            }
+
+            return (
+                <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+                    <button
+                        onClick={onBack}
+                        className="mb-6 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition duration-150 flex items-center"
+                    >
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        Назад к контактам
+                    </button>
+
+                    <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+                        <h2 className="text-3xl font-extrabold text-gray-900 mb-4 border-b pb-2">
+                            {contact.first_name} {contact.last_name}
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-700">
+                            <p><span className="font-semibold">Компания:</span> {contact.company || 'N/A'}</p>
+                            <p><span className="font-semibold">Должность:</span> {contact.title || 'N/A'}</p>
+                            <p><span className="font-semibold">Email:</span> <a href={`mailto:${contact.email}`} className="text-indigo-600 hover:underline">{contact.email || 'N/A'}</a></p>
+                            <p><span className="font-semibold">Телефон:</span> <a href={`tel:${contact.phone}`} className="text-indigo-600 hover:underline">{contact.phone || 'N/A'}</a></p>
+                            <p><span className="font-semibold">Создан:</span> {new Date(contact.created_at).toLocaleDateString()}</p>
+                            <p><span className="font-semibold">ID пользователя:</span> <span className="break-all">{contact.user_id || 'N/A'}</span></p>
+                        </div>
+                    </div>
+
+                    <h3 className="text-2xl font-bold text-gray-900 mb-4">Связанные сделки</h3>
+                    {linkedDeals.length === 0 ? (
+                        <p className="text-center text-gray-600 text-lg mt-6">Нет связанных сделок.</p>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {linkedDeals.map(deal => (
+                                <div key={deal.id} className="bg-white rounded-xl shadow-lg p-6">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <h4 className="text-xl font-bold text-gray-800">{deal.name}</h4>
+                                        <span
+                                            className="px-3 py-1 rounded-full text-xs font-semibold"
+                                            style={{ backgroundColor: getStatusColor(deal.status_id), color: 'white' }}
+                                        >
+                                            {getStatusName(deal.status_id)}
+                                        </span>
+                                    </div>
+                                    <p className="text-gray-600 mb-1">Сумма: <span className="font-semibold text-green-700">${deal.amount?.toFixed(2)}</span></p>
+                                    <p className="text-gray-600 text-sm">Дата закрытия: {deal.close_date ? new Date(deal.close_date).toLocaleDateString() : 'N/A'}</p>
+                                    {/* Optionally add a button to view deal details */}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // --- New Deal Details Page ---
+        const DealDetailsPage = ({ dealId, onBack }) => {
+            const { supabase, userId } = useContext(AppContext);
+            const [deal, setDeal] = useState(null);
+            const [auditLogs, setAuditLogs] = useState([]);
+            const [linkedContacts, setLinkedContacts] = useState([]);
+            const [linkedTags, setLinkedTags] = useState([]);
+            const [statuses, setStatuses] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                if (!supabase || !userId || !dealId) {
+                    setLoading(false);
+                    return;
+                }
+
+                const fetchData = async () => {
+                    setLoading(true);
+                    setError(null);
+                    try {
+                        // Fetch deal details
+                        const { data: dealData, error: dealError } = await supabase
+                            .from('deals')
+                            .select('*')
+                            .eq('id', dealId)
+                            .eq('owner_id', userId) // Ensure user owns the deal
+                            .single();
+
+                        if (dealError) {
+                            console.error("Error fetching deal details:", dealError);
+                            setError("Не удалось загрузить детали сделки.");
+                            setLoading(false);
+                            return;
+                        }
+                        setDeal(dealData);
+
+                        // Fetch audit logs for this deal
+                        const { data: logsData, error: logsError } = await supabase
+                            .from('deal_audit_logs')
+                            .select('*')
+                            .eq('deal_id', dealId)
+                            .order('changed_at', { ascending: false }); // Latest changes first
+
+                        if (logsError) {
+                            console.error("Error fetching audit logs:", logsError);
+                            // Don't block if logs fail, just show what we have
+                        } else {
+                            setAuditLogs(logsData);
+                        }
+
+                        // Fetch linked contacts
+                        if (dealData.contact_ids && dealData.contact_ids.length > 0) {
+                            const { data: contactsData, error: contactsError } = await supabase
+                                .from('contacts')
+                                .select('id, first_name, last_name, company')
+                                .in('id', dealData.contact_ids);
+                            if (contactsError) console.error("Error fetching linked contacts for deal details:", contactsError);
+                            else setLinkedContacts(contactsData);
+                        }
+
+                        // Fetch linked tags
+                        const { data: dealTagsData, error: dealTagsError } = await supabase
+                            .from('deal_tags')
+                            .select('tag_id, tags(id, name)')
+                            .eq('deal_id', dealId);
+
+                        if (dealTagsError) {
+                            console.error("Error fetching linked tags for deal details:", dealTagsError);
+                        }
+                        const tags = dealTagsData ? dealTagsData.map(dt => dt.tags) : [];
+                        setLinkedTags(tags);
+
+                        // Fetch statuses for display
+                        const { data: statusesData, error: statusesError } = await supabase
+                            .from('deal_statuses')
+                            .select('id, name, color')
+                            .order('order_index');
+                        if (statusesError) console.error("Error fetching statuses for deal details:", statusesError);
+                        else setStatuses(statusesData);
+
+
+                    } catch (err) {
+                        console.error("Unexpected error in DealDetailsPage:", err);
+                        setError("Произошла непредвиденная ошибка.");
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+
+                fetchData();
+            }, [supabase, userId, dealId]);
+
+            const getStatusName = (statusId) => {
+                const status = statuses.find(s => s.id === statusId);
+                return status ? status.name : 'Неизвестный статус';
+            };
+
+            const getStatusColor = (statusId) => {
+                const status = statuses.find(s => s.id === statusId);
+                return status ? status.color : '#6B7280'; // Default gray
+            };
+
+            if (loading) {
+                return <div className="p-6 text-center text-gray-600">Загрузка деталей сделки...</div>;
+            }
+
+            if (error) {
+                return <div className="p-6 text-center text-red-600">Ошибка: {error}</div>;
+            }
+
+            if (!deal) {
+                return <div className="p-6 text-center text-gray-600">Сделка не найдена или у вас нет доступа.</div>;
+            }
+
+            return (
+                <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+                    <button
+                        onClick={onBack}
+                        className="mb-6 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition duration-150 flex items-center"
+                    >
+                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                        Назад к сделкам
+                    </button>
+
+                    <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+                        <h2 className="text-3xl font-extrabold text-gray-900 mb-4 border-b pb-2">
+                            {deal.name}
+                            <span
+                                className="ml-4 px-3 py-1 rounded-full text-sm font-semibold"
+                                style={{ backgroundColor: getStatusColor(deal.status_id), color: 'white' }}
+                            >
+                                {getStatusName(deal.status_id)}
+                            </span>
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-700 mb-6">
+                            <p><span className="font-semibold">Сумма:</span> ${deal.amount?.toFixed(2) || '0.00'}</p>
+                            <p><span className="font-semibold">Дата закрытия:</span> {deal.close_date ? new Date(deal.close_date).toLocaleDateString() : 'N/A'}</p>
+                            <p><span className="font-semibold">Создана:</span> {new Date(deal.created_at).toLocaleDateString()}</p>
+                            <p><span className="font-semibold">Последнее обновление:</span> {new Date(deal.updated_at).toLocaleDateString()}</p>
+                            <p><span className="font-semibold">Владелец:</span> <span className="break-all">{deal.owner_id || 'N/A'}</span></p>
+                        </div>
+
+                        {linkedContacts && linkedContacts.length > 0 && (
+                            <div className="mb-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-2">Связанные контакты:</h3>
+                                <ul className="list-disc list-inside text-gray-700">
+                                    {linkedContacts.map(contact => (
+                                        <li key={contact.id}>{contact.first_name} {contact.last_name} ({contact.company})</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {linkedTags && linkedTags.length > 0 && (
+                            <div className="mb-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-2">Теги:</h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {linkedTags.map(tag => (
+                                        <span key={tag.id} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
+                                            {tag.name}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <h3 className="text-2xl font-bold text-gray-900 mb-4">Журнал изменений</h3>
+                    {auditLogs.length === 0 ? (
+                        <p className="text-center text-gray-600 text-lg mt-6">Нет записей об изменениях для этой сделки.</p>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-lg p-6">
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Дата/Время
+                                            </th>
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Поле
+                                            </th>
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Старое значение
+                                            </th>
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Новое значение
+                                            </th>
+                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Пользователь
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {auditLogs.map(log => (
+                                            <tr key={log.id}>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                                                    {new Date(log.changed_at).toLocaleString()}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                                                    {log.field_name}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                                                    {log.old_value || 'NULL'}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                                                    {log.new_value || 'NULL'}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
+                                                    {log.user_id || 'Система'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+
+        const AppRouterContext = createContext(null);
 
         const App = () => {
-            const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard', 'deals', 'contacts', 'history', 'integrations', 'funnel', 'analytics'
-            const { userId } = useContext(AppContext);
+            const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard', 'deals', 'contacts', 'history', 'integrations', 'funnel', 'analytics', 'contactDetails', 'dealDetails'
+            const [selectedContactId, setSelectedContactId] = useState(null); // State for ContactDetailsPage
+            const [selectedDealId, setSelectedDealId] = useState(null); // State for DealDetailsPage
+            const { userId } = useContext(AppContext); // Get userId from AppContext
 
             const NavItem = ({ page, label, icon }) => (
                 <button
-                    onClick={() => setCurrentPage(page)}
+                    onClick={() => {
+                        setCurrentPage(page);
+                        setSelectedContactId(null); // Reset selected contact when changing page
+                        setSelectedDealId(null); // Reset selected deal when changing page
+                    }}
                     className={`flex items-center space-x-3 px-4 py-2 rounded-lg transition-all duration-200
                                 ${currentPage === page ? 'bg-indigo-700 text-white shadow-md' : 'text-indigo-200 hover:bg-indigo-600 hover:text-white'}`}
                 >
@@ -1890,6 +2450,31 @@
                     <span className="font-medium text-lg hidden md:inline">{label}</span>
                 </button>
             );
+
+            const renderPage = () => {
+                switch (currentPage) {
+                    case 'dashboard':
+                        return <DashboardPage />;
+                    case 'deals':
+                        return <DealsPage />;
+                    case 'funnel':
+                        return <FunnelPage />;
+                    case 'contacts':
+                        return <ContactsPage />;
+                    case 'history':
+                        return <HistoryPage />;
+                    case 'integrations':
+                        return <IntegrationsPage />;
+                    case 'analytics':
+                        return <AnalyticsPage />;
+                    case 'contactDetails':
+                        return <ContactDetailsPage contactId={selectedContactId} onBack={() => setCurrentPage('contacts')} />;
+                    case 'dealDetails':
+                        return <DealDetailsPage dealId={selectedDealId} onBack={() => setCurrentPage('deals')} />;
+                    default:
+                        return <DashboardPage />;
+                }
+            };
 
             return (
                 <div className="min-h-screen bg-gray-100 font-sans text-gray-900 flex flex-col md:flex-row">
@@ -1901,11 +2486,11 @@
                         <div className="flex flex-row md:flex-col space-x-4 md:space-x-0 md:space-y-4 w-full justify-center md:justify-start">
                             <NavItem page="dashboard" label="Панель управления" icon="🏠" />
                             <NavItem page="deals" label="Сделки" icon="🤝" />
-                            <NavItem page="funnel" label="Воронка" icon="📈" /> {/* New Nav Item */}
+                            <NavItem page="funnel" label="Воронка" icon="📈" />
                             <NavItem page="contacts" label="Контакты" icon="👤" />
                             <NavItem page="history" label="История" icon="📚" />
                             <NavItem page="integrations" label="Интеграции" icon="🔌" />
-                            <NavItem page="analytics" label="Аналитика" icon="📊" /> {/* New Nav Item */}
+                            <NavItem page="analytics" label="Аналитика" icon="📊" />
                         </div>
                         <div className="mt-auto pt-6 text-sm text-indigo-300 hidden md:block">
                             <p className="text-center">Ваш ID пользователя:</p>
@@ -1915,13 +2500,9 @@
 
                     {/* Main Content Area */}
                     <main className="flex-grow p-4 md:p-8">
-                        {currentPage === 'dashboard' && <DashboardPage />}
-                        {currentPage === 'deals' && <DealsPage />}
-                        {currentPage === 'funnel' && <FunnelPage />} {/* Render Funnel Page */}
-                        {currentPage === 'contacts' && <ContactsPage />}
-                        {currentPage === 'history' && <HistoryPage />}
-                        {currentPage === 'integrations' && <IntegrationsPage />}
-                        {currentPage === 'analytics' && <AnalyticsPage />} {/* Render Analytics Page */}
+                        <AppRouterContext.Provider value={{ setCurrentPage, setSelectedContactId, setSelectedDealId }}>
+                            {renderPage()}
+                        </AppRouterContext.Provider>
                     </main>
                 </div>
             );

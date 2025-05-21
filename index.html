@@ -48,15 +48,16 @@
     </style>
 </head>
 <body>
-    <div id="root"></div> <script type="text/babel">
+    <div id="root"></div> 
+    <script type="text/babel">
         // Your React code goes here
         const { useState, useEffect, createContext, useContext, useCallback } = React;
 
-        // Context for base and User
+        // Context for Supabase and User
         const AppContext = createContext(null);
 
         const AppProvider = ({ children }) => {
-            const [base, setbase] = useState(null);
+            const [supabase, setSupabase] = useState(null);
             const [userId, setUserId] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
@@ -64,13 +65,13 @@
             /*
              * ВАЖНО: Ошибка 401 (Unauthorized) обычно означает, что у пользователя
              * (даже анонимного, который создается при signInAnonymously)
-             * нет необходимых разрешений для доступа к таблицам в base.
+             * нет необходимых разрешений для доступа к таблицам в Supabase.
              *
              * Это контролируется **Политиками Безопасности на Уровне Строк (Row Level Security - RLS)**
-             * в вашей базе данных base.
+             * в вашей базе данных Supabase.
              *
              * Чтобы это приложение работало, вам нужно настроить RLS-политики
-             * в панели управления base для каждой таблицы (public.users, public.contacts,
+             * в панели управления Supabase для каждой таблицы (public.users, public.contacts,
              * public.deal_statuses, public.deals, public.deal_contacts, public.interactions, public.integrations).
              *
              * Пример политик, которые вам могут понадобиться:
@@ -107,7 +108,7 @@
              * Using expression: true
              * Roles: public, authenticated, anon
              *
-             * 3. Для таблицы `public.users` (если она используется для профилей, связанных с base Auth):
+             * 3. Для таблицы `public.users` (если она используется для профилей, связанных с Supabase Auth):
              * - Включите RLS для таблицы.
              * - Создайте политику "SELECT": `auth.uid() = id`
              * - Создайте политику "INSERT": `auth.uid() = id`
@@ -115,41 +116,76 @@
              *
              * Убедитесь, что `user_id` (или `owner_id` в таблице `deals`) в ваших таблицах
              * соответствует `auth.uid()` текущего пользователя.
+             *
+             * Ошибка `AuthRetryableFetchError` со статусом `0` обычно указывает на проблемы с сетью,
+             * такие как блокировка CORS, проблемы с брандмауэром/прокси, или если проект Supabase
+             * неактивен/приостановлен. Убедитесь, что ваш проект Supabase активен и домен,
+             * с которого вы запускаете приложение (например, GitHub Pages URL),
+             * добавлен в список разрешенных доменов CORS в настройках вашего проекта Supabase (Project Settings -> API).
              */
 
-            // Функция для инициализации base клиента
-            const initializebaseClient = async () => {
+            // Функция для инициализации Supabase клиента
+            // Обернуто в useCallback, чтобы обеспечить стабильную ссылку
+            const initializeSupabaseClient = useCallback(async () => {
+                console.log("Supabase: Попытка инициализации клиента...");
                 try {
-                    const baseUrl = 'https://kbjlqmzeclrtowtygbvu.base.co';
-                    const baseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
+                    const supabaseUrl = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
+                    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
 
-                    if (!baseUrl || !supabaseAnonKey) {
+                    if (!supabaseUrl || !supabaseAnonKey) {
                         setError("Supabase URL или Anon Key отсутствуют. Пожалуйста, убедитесь, что они предоставлены.");
                         setLoading(false);
+                        console.error("Supabase: Отсутствуют URL или Anon Key.");
                         return;
                     }
+                    console.log("Supabase: URL и Anon Key присутствуют.");
 
                     // Проверяем, доступен ли createClient из глобального объекта window
                     if (!window.supabase || !window.supabase.createClient) {
                         setError("Библиотека клиента Supabase не загружена в глобальный объект window. Пожалуйста, проверьте CDN-ссылку.");
                         setLoading(false);
+                        console.error("Supabase: window.supabase.createClient не найден. Возможно, проблема с загрузкой CDN.");
                         return;
                     }
+                    console.log("Supabase: window.supabase.createClient доступен.");
 
                     const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
                     setSupabase(supabaseClient);
+                    console.log("Supabase: Клиент создан.");
 
                     // Попытка получить текущую сессию или войти анонимно
+                    console.log("Supabase: Попытка получить сессию или войти анонимно...");
                     const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-                    if (sessionError) throw sessionError;
+                    if (sessionError) {
+                        console.error("Supabase: Ошибка при получении сессии:", sessionError);
+                        // Специальная обработка для ошибки "Invalid API key"
+                        if (sessionError.message && sessionError.message.includes("Invalid API key")) {
+                            setError("Недействительный API-ключ Supabase. Пожалуйста, перепроверьте ключ в настройках проекта Supabase (API Project Settings).");
+                        } else {
+                            setError("Ошибка при получении сессии Supabase: " + sessionError.message);
+                        }
+                        setLoading(false);
+                        return; // Выходим после ошибки
+                    }
 
                     if (session) {
                         setUserId(session.user.id);
                         console.log("Supabase: Пользователь вошел в систему с ID:", session.user.id);
                     } else {
                         // Вход анонимно, если сессия не найдена
+                        console.log("Supabase: Сессия не найдена, попытка анонимного входа...");
                         const { data, error: signInError } = await supabaseClient.auth.signInAnonymously();
-                        if (signInError) throw signInError;
+                        if (signInError) {
+                            console.error("Supabase: Ошибка при анонимном входе:", signInError);
+                             // Специальная обработка для ошибки "Invalid API key"
+                            if (signInError.message && signInError.message.includes("Invalid API key")) {
+                                setError("Недействительный API-ключ Supabase. Пожалуйста, перепроверьте ключ в настройках проекта Supabase (API Project Settings).");
+                            } else {
+                                setError("Ошибка при анонимном входе в Supabase: " + signInError.message);
+                            }
+                            setLoading(false);
+                            return; // Выходим после ошибки
+                        }
                         setUserId(data.user.id);
                         console.log("Supabase: Анонимный вход выполнен, ID пользователя:", data.user.id);
                     }
@@ -166,35 +202,43 @@
                     });
 
                     setLoading(false);
+                    console.log("Supabase: Инициализация завершена.");
 
                     // Очистка подписки при размонтировании компонента
                     return () => {
                         authListener?.subscription.unsubscribe();
+                        console.log("Supabase: Отписка от слушателя аутентификации.");
                     };
                 } catch (err) {
-                    console.error("Ошибка инициализации Supabase:", err);
+                    console.error("Ошибка инициализации Supabase (catch блок):", err);
                     setError("Не удалось инициализировать Supabase: " + err.message);
                     setLoading(false);
                 }
-            };
+            }, [setSupabase, setUserId, setLoading, setError]); // Зависимости useCallback
 
             useEffect(() => {
-                const loadSupabaseAndInitialize = () => {
+                // Вспомогательная функция, которая будет рекурсивно вызываться
+                const loadSupabaseAndInitializeInternal = () => {
                     // Проверяем наличие createClient в глобальном объекте window
                     if (window.supabase && window.supabase.createClient) {
                         console.log("Клиент Supabase найден в объекте window. Инициализация...");
                         initializeSupabaseClient(); // Вызываем фактическую функцию инициализации
                     } else {
                         console.log("Клиент Supabase еще не доступен, повторяем попытку...");
-                        setTimeout(loadSupabaseAndInitialize, 100); // Опрашиваем каждые 100 мс
+                        // Важно передать loadSupabaseAndInitializeInternal, чтобы setTimeout вызывал сам себя
+                        setTimeout(loadSupabaseAndInitializeInternal, 100); 
                     }
                 };
 
                 // Начинаем опрос для клиента Supabase
-                loadSupabaseAndInitialize();
+                loadSupabaseAndInitializeInternal();
 
                 // Очистка не требуется для опроса, так как он останавливается после инициализации
-            }, []); // Запускается один раз при монтировании
+            }, [initializeSupabaseClient]); // Зависит от initializeSupabaseClient
+            // NOTE: Если initializeSupabaseClient не обернут в useCallback,
+            // этот useEffect будет перезапускаться при каждом рендере,
+            // что может привести к бесконечным циклам или ошибкам.
+
 
             if (loading) {
                 return (
@@ -1764,16 +1808,14 @@
                                 {dealsByStatus.map(status => (
                                     <div key={status.name} className="flex items-center">
                                         <span className="w-32 text-sm font-medium text-gray-700">{status.name}</span>
-                                        <div className="flex-grow bg-gray-200 rounded-full h-6 relative overflow-hidden">
-                                            <div
-                                                className="h-full rounded-full flex items-center justify-end pr-2 text-white text-xs font-bold transition-all duration-500 ease-out"
-                                                style={{
-                                                    width: `${(status.count / maxStatusCount) * 100}%`,
-                                                    backgroundColor: status.color || '#6B7280'
-                                                }}
-                                            >
-                                                {status.count > 0 && status.count}
-                                            </div>
+                                        <div
+                                            className="h-full rounded-full flex items-center justify-end pr-2 text-white text-xs font-bold transition-all duration-500 ease-out"
+                                            style={{
+                                                width: `${(status.count / maxStatusCount) * 100}%`,
+                                                backgroundColor: status.color || '#6B7280'
+                                            }}
+                                        >
+                                            {status.count > 0 && status.count}
                                         </div>
                                     </div>
                                 ))}

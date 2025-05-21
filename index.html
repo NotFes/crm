@@ -530,13 +530,13 @@
             const [dealToDelete, setDealToDelete] = useState(null);
             const [filterStatus, setFilterStatus] = useState('all');
 
-            const { setCurrentPage, setSelectedDealId } = useContext(AppRouterContext); // Assuming AppRouterContext is available
+            const { setCurrentPage, setSelectedDealId } = useContext(AppRouterContext);
 
             useEffect(() => {
                 if (!supabase || !userId) return;
 
                 // --- Real-time subscription for statuses ---
-                const statusesChannel = supabase.channel('deal_statuses_changes_deals_page') // Уникальное имя канала
+                const statusesChannel = supabase.channel('deal_statuses_changes_deals_page')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'deal_statuses' },
@@ -559,7 +559,7 @@
                     });
 
                 // --- Real-time subscription for contacts ---
-                const contactsChannel = supabase.channel('contacts_changes_deals_page') // Уникальное имя канала
+                const contactsChannel = supabase.channel('contacts_changes_deals_page')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'contacts' },
@@ -606,7 +606,7 @@
 
 
                 // --- Real-time subscription for deals ---
-                const dealsChannel = supabase.channel('deals_changes') // Уникальное имя канала
+                const dealsChannel = supabase.channel('deals_changes')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'deals' },
@@ -916,7 +916,7 @@
 
         const ContactsPage = () => {
             const { supabase, userId } = useContext(AppContext);
-            const { setCurrentPage, setSelectedContactId } = useContext(AppRouterContext); // Assuming AppRouterContext is available
+            const { setCurrentPage, setSelectedContactId } = useContext(AppRouterContext);
             const [contacts, setContacts] = useState([]);
             const [isContactModalOpen, setIsContactModalOpen] = useState(false);
             const [editingContact, setEditingContact] = useState(null);
@@ -928,7 +928,7 @@
                 if (!supabase || !userId) return;
 
                 // --- Real-time subscription for contacts ---
-                const contactsChannel = supabase.channel('contacts_changes') // Уникальное имя канала
+                const contactsChannel = supabase.channel('contacts_changes')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'contacts' },
@@ -967,7 +967,7 @@
                         const { error } = await supabase
                             .from('contacts')
                             .update(contactToSave)
-                            .eq('id', editingContact.id);
+                            .eq('id', editingContact.id); // Use 'id' for update
                         if (error) throw error;
                         console.log("Контакт обновлен:", editingContact.id);
                     } else {
@@ -1001,7 +1001,7 @@
                     const { error } = await supabase
                         .from('contacts')
                         .delete()
-                        .eq('id', contactToDelete.id);
+                        .eq('id', contactToDelete.id); // Use 'id' for delete
                     if (error) throw error;
                     console.log("Контакт удален:", contactToDelete.id);
                     setShowDeleteConfirm(false);
@@ -1129,7 +1129,7 @@
                 fetchRelatedData();
 
                 // --- Real-time subscription for interactions ---
-                const interactionsChannel = supabase.channel('interactions_changes') // Уникальное имя канала
+                const interactionsChannel = supabase.channel('interactions_changes')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'interactions' },
@@ -1211,13 +1211,13 @@
                 if (!supabase || !userId) return;
 
                 // --- Real-time subscription for integrations ---
-                const integrationsChannel = supabase.channel('integrations_changes') // Уникальное имя канала
+                const integrationsChannel = supabase.channel('integrations_changes')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'integrations' },
                         payload => {
                             console.log("Real-time update for integrations:", payload);
-                            supabase.from('integrations').select('*').eq('user_id', userId) // Добавлен user_id
+                            supabase.from('integrations').select('*').eq('user_id', userId)
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching integrations:", error);
                                     else setIntegrations(data);
@@ -1227,7 +1227,7 @@
                     .subscribe();
 
                 // Initial fetch for integrations
-                supabase.from('integrations').select('*').eq('user_id', userId) // Добавлен user_id
+                supabase.from('integrations').select('*').eq('user_id', userId)
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial integrations:", error);
                         else setIntegrations(data);
@@ -1546,7 +1546,7 @@
         // --- New Funnel Page ---
         const FunnelPage = () => {
             const { supabase, userId } = useContext(AppContext);
-            const { setCurrentPage, setSelectedDealId } = useContext(AppRouterContext); // Assuming AppRouterContext is available
+            const { setCurrentPage, setSelectedDealId } = useContext(AppRouterContext);
             const [deals, setDeals] = useState([]);
             const [statuses, setStatuses] = useState([]);
             const [tags, setTags] = useState([]); // New state for tags
@@ -1559,7 +1559,7 @@
                 if (!supabase || !userId) return;
 
                 // --- Real-time subscription for statuses ---
-                const statusesChannel = supabase.channel('deal_statuses_changes_funnel_page') // Уникальное имя канала
+                const statusesChannel = supabase.channel('deal_statuses_changes_funnel_page')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'deal_statuses' },
@@ -1582,7 +1582,7 @@
                     });
 
                 // --- Real-time subscription for contacts ---
-                const contactsChannel = supabase.channel('contacts_changes_funnel_page') // Уникальное имя канала
+                const contactsChannel = supabase.channel('contacts_changes_funnel_page')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'contacts' },
@@ -1629,7 +1629,7 @@
 
 
                 // --- Real-time subscription for deals ---
-                const dealsChannel = supabase.channel('deals_changes_funnel_page') // Уникальное имя канала
+                const dealsChannel = supabase.channel('deals_changes_funnel_page')
                     .on(
                         'postgres_changes',
                         { event: '*', schema: 'public', table: 'deals' },
@@ -2081,7 +2081,8 @@
                         const { data: contactData, error: contactError } = await supabase
                             .from('contacts')
                             .select('*')
-                            .eq('id', contactId)
+                            .eq('id', contactId) // Use 'id' for fetching contact
+                            .eq('user_id', userId) // Ensure user owns the contact
                             .single();
 
                         if (contactError) {
@@ -2093,7 +2094,7 @@
                         setContact(contactData);
 
                         // Fetch deals linked to this contact
-                        // We need to find deals where contact_ids (jsonb array) contains contactId
+                        // We need to find deals where contact_ids (uuid array) contains contactId
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
                             .select('*')

@@ -505,14 +505,13 @@
             useEffect(() => {
                 if (!supabase || !userId) return;
 
-                // Fetch statuses
-                const statusesSubscription = supabase
-                    .from('deal_statuses')
-                    .select('*')
-                    .order('order_index')
-                    .on('*', payload => {
-                        // Real-time updates for statuses
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for statuses ---
+                const statusesChannel = supabase.channel('deal_statuses_changes') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'deal_statuses' },
+                        payload => {
+                            console.log("Real-time update for deal_statuses:", payload);
                             // Re-fetch all statuses to ensure correct order after changes
                             supabase.from('deal_statuses').select('*').order('order_index')
                                 .then(({ data, error }) => {
@@ -520,7 +519,7 @@
                                     else setStatuses(data);
                                 });
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for statuses
@@ -530,21 +529,20 @@
                         else setStatuses(data);
                     });
 
-                // Fetch contacts (for linking to deals)
-                const contactsSubscription = supabase
-                    .from('contacts')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .on('*', payload => {
-                        // Real-time updates for contacts
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for contacts ---
+                const contactsChannel = supabase.channel('contacts_changes_deals_page') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'contacts' },
+                        payload => {
+                            console.log("Real-time update for contacts on DealsPage:", payload);
                             supabase.from('contacts').select('*').eq('user_id', userId)
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching contacts:", error);
                                     else setContacts(data);
                                 });
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for contacts
@@ -555,14 +553,13 @@
                     });
 
 
-                // Fetch deals
-                const dealsSubscription = supabase
-                    .from('deals')
-                    .select('*')
-                    .eq('owner_id', userId)
-                    .on('*', async payload => {
-                        // Real-time updates for deals
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for deals ---
+                const dealsChannel = supabase.channel('deals_changes') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'deals' },
+                        async payload => {
+                            console.log("Real-time update for deals:", payload);
                             const { data: fetchedDeals, error } = await supabase
                                 .from('deals')
                                 .select('*')
@@ -591,7 +588,7 @@
                             }));
                             setDeals(dealsWithContacts);
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for deals
@@ -610,9 +607,10 @@
 
                                 if (contactsError) {
                                     console.error("Error fetching linked contacts:", contactsError);
+                                    // Fallback to empty array to avoid breaking the app
                                     return { ...deal, linkedContacts: [] };
                                 }
-                                return { ...deal, linkedContacts: [] };
+                                return { ...deal, linkedContacts: linkedContacts };
                             }
                             return { ...deal, linkedContacts: [] };
                         }));
@@ -621,9 +619,9 @@
 
 
                 return () => {
-                    statusesSubscription.unsubscribe();
-                    contactsSubscription.unsubscribe();
-                    dealsSubscription.unsubscribe();
+                    statusesChannel.unsubscribe();
+                    contactsChannel.unsubscribe(); // Unsubscribe from contacts channel
+                    dealsChannel.unsubscribe();
                 };
             }, [supabase, userId]); // Depend on supabase and userId
 
@@ -790,12 +788,14 @@
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить сделку "{dealToDelete?.name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
+                                type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
                             >
                                 Отмена
                             </button>
                             <button
+                                type="button"
                                 onClick={confirmDeleteDeal}
                                 className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
                             >
@@ -819,20 +819,20 @@
             useEffect(() => {
                 if (!supabase || !userId) return;
 
-                const contactsSubscription = supabase
-                    .from('contacts')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .on('*', payload => {
-                        // Real-time updates for contacts
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for contacts ---
+                const contactsChannel = supabase.channel('contacts_changes') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'contacts' },
+                        payload => {
+                            console.log("Real-time update for contacts:", payload);
                             supabase.from('contacts').select('*').eq('user_id', userId)
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching contacts:", error);
                                     else setContacts(data);
                                 });
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for contacts
@@ -842,7 +842,7 @@
                         else setContacts(data);
                     });
 
-                return () => contactsSubscription.unsubscribe();
+                return () => contactsChannel.unsubscribe();
             }, [supabase, userId]);
 
             const handleSaveContact = async (contactData) => {
@@ -959,12 +959,14 @@
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить контакт "{contactToDelete?.first_name} {contactToDelete?.last_name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
+                                type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
                             >
                                 Отмена
                             </button>
                             <button
+                                type="button"
                                 onClick={confirmDeleteContact}
                                 className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
                             >
@@ -1006,21 +1008,20 @@
 
                 fetchRelatedData();
 
-                const interactionsSubscription = supabase
-                    .from('interactions')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .order('interaction_date', { ascending: false }) // Order by date descending
-                    .on('*', payload => {
-                        // Real-time updates for interactions
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for interactions ---
+                const interactionsChannel = supabase.channel('interactions_changes') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'interactions' },
+                        payload => {
+                            console.log("Real-time update for interactions:", payload);
                             supabase.from('interactions').select('*').eq('user_id', userId).order('interaction_date', { ascending: false })
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching interactions:", error);
                                     else setInteractions(data);
                                 });
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for interactions
@@ -1030,7 +1031,7 @@
                         else setInteractions(data);
                     });
 
-                return () => interactionsSubscription.unsubscribe();
+                return () => interactionsChannel.unsubscribe();
             }, [supabase, userId]);
 
             const getDealName = (dealId) => {
@@ -1090,20 +1091,20 @@
             useEffect(() => {
                 if (!supabase || !userId) return;
 
-                const integrationsSubscription = supabase
-                    .from('integrations')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .on('*', payload => {
-                        // Real-time updates for integrations
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for integrations ---
+                const integrationsChannel = supabase.channel('integrations_changes') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'integrations' },
+                        payload => {
+                            console.log("Real-time update for integrations:", payload);
                             supabase.from('integrations').select('*').eq('user_id', userId)
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching integrations:", error);
                                     else setIntegrations(data);
                                 });
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for integrations
@@ -1113,7 +1114,7 @@
                         else setIntegrations(data);
                     });
 
-                return () => integrationsSubscription.unsubscribe();
+                return () => integrationsChannel.unsubscribe();
             }, [supabase, userId]);
 
             const handleSaveIntegration = async (integrationData) => {
@@ -1298,12 +1299,14 @@
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить интеграцию "{integrationToDelete?.name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
+                                type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
                             >
                                 Отмена
                             </button>
                             <button
+                                type="button"
                                 onClick={confirmDeleteIntegration}
                                 className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
                             >
@@ -1434,43 +1437,43 @@
             useEffect(() => {
                 if (!supabase || !userId) return;
 
-                const statusesSubscription = supabase
-                    .from('deal_statuses')
-                    .select('*')
-                    .order('order_index')
-                    .on('*', payload => {
-                        // Real-time updates for statuses
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for statuses ---
+                const statusesChannel = supabase.channel('deal_statuses_changes_funnel_page') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'deal_statuses' },
+                        payload => {
+                            console.log("Real-time update for deal_statuses on FunnelPage:", payload);
                             supabase.from('deal_statuses').select('*').order('order_index')
                                 .then(({ data, error }) => {
-                                    if (error) console.error("Error re-fetching statuses:", error);
+                                    if (error) console.error("Error re-fetching statuses for FunnelPage:", error);
                                     else setStatuses(data);
                                 });
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for statuses
                 supabase.from('deal_statuses').select('*').order('order_index')
                     .then(({ data, error }) => {
-                        if (error) console.error("Error fetching initial statuses:", error);
+                        if (error) console.error("Error fetching initial statuses for FunnelPage:", error);
                         else setStatuses(data);
                     });
 
-                const dealsSubscription = supabase
-                    .from('deals')
-                    .select('*')
-                    .eq('owner_id', userId)
-                    .on('*', async payload => {
-                        // Real-time updates for deals
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for deals ---
+                const dealsChannel = supabase.channel('deals_changes_funnel_page') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'deals' },
+                        async payload => {
+                            console.log("Real-time update for deals on FunnelPage:", payload);
                             const { data: fetchedDeals, error } = await supabase
                                 .from('deals')
                                 .select('*')
                                 .eq('owner_id', userId);
 
                             if (error) {
-                                console.error("Error re-fetching deals:", error);
+                                console.error("Error re-fetching deals for FunnelPage:", error);
                                 return;
                             }
 
@@ -1482,7 +1485,7 @@
                                         .in('id', deal.contact_ids);
 
                                     if (contactsError) {
-                                        console.error("Error fetching linked contacts:", contactsError);
+                                        console.error("Error fetching linked contacts for FunnelPage:", contactsError);
                                         return { ...deal, linkedContacts: [] };
                                     }
                                     return { ...deal, linkedContacts: linkedContacts };
@@ -1491,14 +1494,14 @@
                             }));
                             setDeals(dealsWithContacts);
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for deals
                 supabase.from('deals').select('*').eq('owner_id', userId)
                     .then(async ({ data: fetchedDeals, error }) => {
                         if (error) {
-                            console.error("Error fetching initial deals:", error);
+                            console.error("Error fetching initial deals for FunnelPage:", error);
                             return;
                         }
                         const dealsWithContacts = await Promise.all(fetchedDeals.map(async (deal) => {
@@ -1509,44 +1512,44 @@
                                     .in('id', deal.contact_ids);
 
                                 if (contactsError) {
-                                    console.error("Error fetching linked contacts:", contactsError);
+                                    console.error("Error fetching linked contacts for FunnelPage:", contactsError);
                                     return { ...deal, linkedContacts: [] };
                                 }
-                                return { ...deal, linkedContacts: [] };
+                                return { ...deal, linkedContacts: linkedContacts };
                             }
                             return { ...deal, linkedContacts: [] };
                         }));
                         setDeals(dealsWithContacts);
                     });
 
-                const contactsSubscription = supabase
-                    .from('contacts')
-                    .select('*')
-                    .eq('user_id', userId)
-                    .on('*', payload => {
-                        // Real-time updates for contacts
-                        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+                // --- Real-time subscription for contacts ---
+                const contactsChannel = supabase.channel('contacts_changes_funnel_page') // Уникальное имя канала
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'contacts' },
+                        payload => {
+                            console.log("Real-time update for contacts on FunnelPage:", payload);
                             supabase.from('contacts').select('*').eq('user_id', userId)
                                 .then(({ data, error }) => {
-                                    if (error) console.error("Error re-fetching contacts:", error);
+                                    if (error) console.error("Error re-fetching contacts for FunnelPage:", error);
                                     else setContacts(data);
                                 });
                         }
-                    })
+                    )
                     .subscribe();
 
                 // Initial fetch for contacts
                 supabase.from('contacts').select('*').eq('user_id', userId)
                     .then(({ data, error }) => {
-                        if (error) console.error("Error fetching initial contacts:", error);
+                        if (error) console.error("Error fetching initial contacts for FunnelPage:", error);
                         else setContacts(data);
                     });
 
 
                 return () => {
-                    statusesSubscription.unsubscribe();
-                    dealsSubscription.unsubscribe();
-                    contactsSubscription.unsubscribe();
+                    statusesChannel.unsubscribe();
+                    dealsChannel.unsubscribe();
+                    contactsChannel.unsubscribe();
                 };
             }, [supabase, userId]);
 

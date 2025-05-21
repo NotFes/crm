@@ -71,7 +71,7 @@
              * в вашей базе данных Supabase.
              *
              * Чтобы это приложение работало, вам нужно настроить RLS-политики
-             * в панели управления Supabase для каждой таблицы (public.users, public.contacts,
+             * в панели управления Supabase для каждой таблицы (public.user, public.contacts,
              * public.deal_statuses, public.deals, public.deal_contacts, public.interactions, public.integrations).
              *
              * Пример политик, которые вам могут понадобиться:
@@ -108,7 +108,7 @@
              * Using expression: true
              * Roles: public, authenticated, anon
              *
-             * 3. Для таблицы `public.users` (если она используется для профилей, связанных с Supabase Auth):
+             * 3. Для таблицы `public.user` (если она используется для профилей, связанных с Supabase Auth):
              * - Включите RLS для таблицы.
              * - Создайте политику "SELECT": `auth.uid() = id`
              * - Создайте политику "INSERT": `auth.uid() = id`
@@ -272,6 +272,7 @@
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative transform transition-all duration-300 scale-100 opacity-100">
                         <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">{title}</h3>
                         <button
+                            type="button" // Добавлено type="button"
                             onClick={onClose}
                             className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-3xl leading-none"
                             aria-label="Закрыть"
@@ -419,7 +420,7 @@
 
                     <div className="flex justify-end space-x-3 mt-6">
                         <button
-                            type="button"
+                            type="button" // Добавлено type="button"
                             onClick={onClose}
                             className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
                         >
@@ -473,7 +474,7 @@
 
                     <div className="flex justify-end space-x-3 mt-6">
                         <button
-                            type="button"
+                            type="button" // Добавлено type="button"
                             onClick={onClose}
                             className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
                         >
@@ -635,7 +636,10 @@
                         // Supabase DATE type expects 'YYYY-MM-DD' string
                         close_date: dealData.close_date || null,
                         // description: dealData.description, // Removed
-                        contact_ids: dealData.contact_ids || [],
+                        // Убедись, что колонка contact_ids в таблице deals имеет тип jsonb или text[] (массив UUID/текста).
+                        // Если тип jsonb, то нужно использовать JSON.stringify(dealData.contact_ids || [])
+                        // Если тип text[] или uuid[], то можно передавать массив напрямую.
+                        contact_ids: dealData.contact_ids || [], 
                     };
 
                     if (editingDeal) {
@@ -784,7 +788,7 @@
                         />
                     </Modal>
 
-                    <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Подтверждение удаления">
+                    <Modal isOpen={showDeleteConfirm} onClose={() => setIsDealModalOpen(false)} title="Подтверждение удаления">
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить сделку "{dealToDelete?.name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
@@ -848,7 +852,12 @@
             const handleSaveContact = async (contactData) => {
                 try {
                     const contactToSave = {
-                        ...contactData,
+                        first_name: contactData.first_name, // Используем first_name
+                        last_name: contactData.last_name,   // Используем last_name
+                        email: contactData.email,
+                        phone: contactData.phone,
+                        company: contactData.company,
+                        title: contactData.title,
                         user_id: userId,
                         // created_at and updated_at are handled by database defaults/triggers
                     };
@@ -955,18 +964,18 @@
                         />
                     </Modal>
 
-                    <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="Подтверждение удаления">
+                    <Modal isOpen={showDeleteConfirm} onClose={() => setIsContactModalOpen(false)} title="Подтверждение удаления">
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить контакт "{contactToDelete?.first_name} {contactToDelete?.last_name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
-                                type="button"
+                                type="button" // Добавлено type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
                             >
                                 Отмена
                             </button>
                             <button
-                                type="button"
+                                type="button" // Добавлено type="button"
                                 onClick={confirmDeleteContact}
                                 className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
                             >
@@ -1000,7 +1009,7 @@
                     // Fetch contacts
                     const { data: contactsData, error: contactsError } = await supabase
                         .from('contacts')
-                        .select('id, first_name, last_name')
+                        .select('id, first_name, last_name') // Запрашиваем first_name и last_name
                         .eq('user_id', userId);
                     if (contactsError) console.error("Error fetching contacts for history:", contactsError);
                     else setContacts(contactsData);
@@ -1041,7 +1050,7 @@
 
             const getContactName = (contactId) => {
                 const contact = contacts.find(c => c.id === contactId);
-                return contact ? `${contact.first_name} ${contact.last_name}` : 'Неизвестный контакт';
+                return contact ? `${contact.first_name} ${contact.last_name}` : 'Неизвестный контакт'; // Используем first_name и last_name
             };
 
             return (
@@ -1098,7 +1107,7 @@
                         { event: '*', schema: 'public', table: 'integrations' },
                         payload => {
                             console.log("Real-time update for integrations:", payload);
-                            supabase.from('integrations').select('*').eq('user_id', userId)
+                            supabase.from('integrations').select('*').eq('user_id', userId) // Добавлен user_id
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching integrations:", error);
                                     else setIntegrations(data);
@@ -1108,7 +1117,7 @@
                     .subscribe();
 
                 // Initial fetch for integrations
-                supabase.from('integrations').select('*').eq('user_id', userId)
+                supabase.from('integrations').select('*').eq('user_id', userId) // Добавлен user_id
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial integrations:", error);
                         else setIntegrations(data);
@@ -1231,7 +1240,7 @@
 
                         <div className="flex justify-end space-x-3 mt-6">
                             <button
-                                type="button"
+                                type="button" // Добавлено type="button"
                                 onClick={onClose}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
                             >
@@ -1299,14 +1308,14 @@
                         <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить интеграцию "{integrationToDelete?.name}"? Это действие необратимо.</p>
                         <div className="flex justify-end space-x-3">
                             <button
-                                type="button"
+                                type="button" // Добавлено type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
                                 className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
                             >
                                 Отмена
                             </button>
                             <button
-                                type="button"
+                                type="button" // Добавлено type="button"
                                 onClick={confirmDeleteIntegration}
                                 className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
                             >
@@ -1360,7 +1369,7 @@
                         const { data: statusesData, error: statusesError } = await supabase
                             .from('deal_statuses')
                             .select('*')
-                            .order('order_index');
+                            .order('order_index'); // Убедитесь, что order_index существует в БД
                         if (statusesError) console.error("Error fetching statuses for dashboard:", statusesError);
                         else setStatuses(statusesData);
 
@@ -1515,7 +1524,7 @@
                                     console.error("Error fetching linked contacts for FunnelPage:", contactsError);
                                     return { ...deal, linkedContacts: [] };
                                 }
-                                return { ...deal, linkedContacts: linkedContacts };
+                                return { ...deal, linkedContacts: [] };
                             }
                             return { ...deal, linkedContacts: [] };
                         }));
@@ -1541,7 +1550,7 @@
                 // Initial fetch for contacts
                 supabase.from('contacts').select('*').eq('user_id', userId)
                     .then(({ data, error }) => {
-                        if (error) console.error("Error fetching initial contacts for FunnelPage:", error);
+                        if (error) console.error("Error fetching initial contacts:", error);
                         else setContacts(data);
                     });
 
@@ -1595,7 +1604,10 @@
                         owner_id: userId,
                         close_date: dealData.close_date || null,
                         // description: dealData.description, // Removed
-                        contact_ids: dealData.contact_ids || [],
+                        // Убедись, что колонка contact_ids в таблице deals имеет тип jsonb или text[] (массив UUID/текста).
+                        // Если тип jsonb, то нужно использовать JSON.stringify(dealData.contact_ids || [])
+                        // Если тип text[] или uuid[], то можно передавать массив напрямую.
+                        contact_ids: dealData.contact_ids || [], 
                     };
 
                     if (editingDeal) {
@@ -1737,7 +1749,7 @@
                         const { data: statusesData, error: statusesError } = await supabase
                             .from('deal_statuses')
                             .select('*')
-                            .order('order_index');
+                            .order('order_index'); // Убедитесь, что order_index существует в БД
                         if (statusesError) console.error("Error fetching statuses for dashboard:", statusesError);
                         else setStatuses(statusesData);
 

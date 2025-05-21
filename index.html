@@ -52,11 +52,11 @@
         // Your React code goes here
         const { useState, useEffect, createContext, useContext, useCallback } = React;
 
-        // Context for Supabase and User
+        // Context for base and User
         const AppContext = createContext(null);
 
         const AppProvider = ({ children }) => {
-            const [supabase, setSupabase] = useState(null);
+            const [base, setbase] = useState(null);
             const [userId, setUserId] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
@@ -64,13 +64,13 @@
             /*
              * ВАЖНО: Ошибка 401 (Unauthorized) обычно означает, что у пользователя
              * (даже анонимного, который создается при signInAnonymously)
-             * нет необходимых разрешений для доступа к таблицам в Supabase.
+             * нет необходимых разрешений для доступа к таблицам в base.
              *
              * Это контролируется **Политиками Безопасности на Уровне Строк (Row Level Security - RLS)**
-             * в вашей базе данных Supabase.
+             * в вашей базе данных base.
              *
              * Чтобы это приложение работало, вам нужно настроить RLS-политики
-             * в панели управления Supabase для каждой таблицы (public.users, public.contacts,
+             * в панели управления base для каждой таблицы (public.users, public.contacts,
              * public.deal_statuses, public.deals, public.deal_contacts, public.interactions, public.integrations).
              *
              * Пример политик, которые вам могут понадобиться:
@@ -107,7 +107,7 @@
              * Using expression: true
              * Roles: public, authenticated, anon
              *
-             * 3. Для таблицы `public.users` (если она используется для профилей, связанных с Supabase Auth):
+             * 3. Для таблицы `public.users` (если она используется для профилей, связанных с base Auth):
              * - Включите RLS для таблицы.
              * - Создайте политику "SELECT": `auth.uid() = id`
              * - Создайте политику "INSERT": `auth.uid() = id`
@@ -117,13 +117,13 @@
              * соответствует `auth.uid()` текущего пользователя.
              */
 
-            // Функция для инициализации Supabase клиента
-            const initializeSupabaseClient = async () => {
+            // Функция для инициализации base клиента
+            const initializebaseClient = async () => {
                 try {
-                    const supabaseUrl = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
-                    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdjhhUNuxxLLGP8';
+                    const baseUrl = 'https://kbjlqmzeclrtowtygbvu.base.co';
+                    const baseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
 
-                    if (!supabaseUrl || !supabaseAnonKey) {
+                    if (!baseUrl || !supabaseAnonKey) {
                         setError("Supabase URL или Anon Key отсутствуют. Пожалуйста, убедитесь, что они предоставлены.");
                         setLoading(false);
                         return;

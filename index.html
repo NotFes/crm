@@ -72,32 +72,33 @@
              *
              * Чтобы это приложение работало, вам нужно настроить RLS-политики
              * в панели управления Supabase для каждой таблицы (public.user, public.contacts,
-             * public.deal_statuses, public.deals, public.deal_contacts, public.interactions, public.integrations, public.deal_audit_logs, public.tags, public.deal_tags).
+             * public.deal_statuses, public.deals, public.interactions, public.integrations,
+             * public.deal_audit_logs, public.tags, public.deal_tags, public.tasks).
              *
              * Пример политик, которые вам могут понадобиться:
              *
-             * 1. Для таблиц, где пользователи видят только свои данные (contacts, deals, interactions, integrations, deal_audit_logs, tags, deal_tags):
+             * 1. Для таблиц, где пользователи видят только свои данные (contacts, deals, interactions, integrations, deal_audit_logs, tags, deal_tags, tasks):
              * - Включите RLS для таблицы.
              * - Создайте политику "SELECT":
              * Name: "Allow users to read their own data"
              * For: SELECT
-             * Using expression: auth.uid() = user_id  (или owner_id для таблицы deals, или user_id для deal_audit_logs, tags)
+             * Using expression: auth.uid() = user_id  (или owner_id для таблицы deals, или assigned_to_user_id для tasks)
              * Roles: authenticated, anon (если вы хотите, чтобы анонимные пользователи могли видеть свои данные)
              * - Создайте политику "INSERT":
              * Name: "Allow users to insert their own data"
              * For: INSERT
-             * With check expression: auth.uid() = user_id (или owner_id)
+             * With check expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
              * Roles: authenticated, anon
              * - Создайте политику "UPDATE":
              * Name: "Allow users to update their own data"
              * For: UPDATE
-             * Using expression: auth.uid() = user_id (или owner_id)
-             * With check expression: auth.uid() = user_id (или owner_id)
+             * Using expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
+             * With check expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
              * Roles: authenticated, anon
              * - Создайте политику "DELETE":
              * Name: "Allow users to delete their own data"
              * For: DELETE
-             * Using expression: auth.uid() = user_id (или owner_id)
+             * Using expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
              * Roles: authenticated, anon
              *
              * 2. Для таблицы `deal_statuses` (если она содержит общие данные для всех):
@@ -114,7 +115,7 @@
              * - Создайте политику "INSERT": `auth.uid() = id`
              * - Создайте политику "UPDATE": `auth.uid() = id`
              *
-             * Убедитесь, что `user_id` (или `owner_id` в таблице `deals`) в ваших таблицах
+             * Убедитесь, что `user_id` (или `owner_id` в таблице `deals`, или `assigned_to_user_id` в `tasks`) в ваших таблицах
              * соответствует `auth.uid()` текущего пользователя.
              *
              * Ошибка `AuthRetryableFetchError` со статусом `0` обычно указывает на проблемы с сетью,
@@ -871,7 +872,7 @@
                                         <button
                                             onClick={() => handleDeleteClick(deal)}
                                             className="text-red-600 hover:text-red-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-red-50 transition duration-150"
-                                        >
+                                >
                                             Удалить
                                         </button>
                                     </div>
@@ -2061,11 +2062,16 @@
         // --- New Contact Details Page ---
         const ContactDetailsPage = ({ contactId, onBack }) => {
             const { supabase, userId } = useContext(AppContext);
+            const { setCurrentPage, setSelectedDealId } = useContext(AppRouterContext); // Get setSelectedDealId
             const [contact, setContact] = useState(null);
             const [linkedDeals, setLinkedDeals] = useState([]);
+            const [linkedTasks, setLinkedTasks] = useState([]); // New state for tasks
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
             const [statuses, setStatuses] = useState([]); // To display deal status names
+            const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+            const [editingTask, setEditingTask] = useState(null);
+            const [users, setUsers] = useState([]); // For task assignee
 
             useEffect(() => {
                 if (!supabase || !userId || !contactId) {
@@ -2081,7 +2087,7 @@
                         const { data: contactData, error: contactError } = await supabase
                             .from('contacts')
                             .select('*')
-                            .eq('id', contactId) // Use 'id' for fetching contact
+                            .eq('id', contactId)
                             .eq('user_id', userId) // Ensure user owns the contact
                             .single();
 
@@ -2094,24 +2100,34 @@
                         setContact(contactData);
 
                         // Fetch deals linked to this contact
-                        // We need to find deals where contact_ids (uuid array) contains contactId
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
                             .select('*')
-                            .eq('owner_id', userId); // Only deals owned by current user
+                            .eq('owner_id', userId);
 
                         if (dealsError) {
                             console.error("Error fetching linked deals:", dealsError);
                             setError("Не удалось загрузить связанные сделки.");
-                            setLoading(false);
-                            return;
+                            // Don't return, continue to fetch other data
+                        } else {
+                            const filteredDeals = dealsData.filter(deal => 
+                                deal.contact_ids && Array.isArray(deal.contact_ids) && deal.contact_ids.includes(contactId)
+                            );
+                            setLinkedDeals(filteredDeals);
                         }
 
-                        // Filter deals that contain this contactId in their contact_ids array
-                        const filteredDeals = dealsData.filter(deal => 
-                            deal.contact_ids && Array.isArray(deal.contact_ids) && deal.contact_ids.includes(contactId)
-                        );
-                        setLinkedDeals(filteredDeals);
+                        // Fetch tasks linked to this contact
+                        const { data: tasksData, error: tasksError } = await supabase
+                            .from('tasks')
+                            .select('*, user(id, email)') // Select task and join with user table for assignee email
+                            .eq('contact_id', contactId)
+                            .or(`assigned_to_user_id.eq.${userId},deal_id.in.(${dealsData.map(d => d.id).join(',')})`); // Tasks assigned to current user OR linked to current user's deals
+                        
+                        if (tasksError) {
+                            console.error("Error fetching linked tasks:", tasksError);
+                        } else {
+                            setLinkedTasks(tasksData);
+                        }
 
                         // Fetch statuses for deal names
                         const { data: statusesData, error: statusesError } = await supabase
@@ -2120,6 +2136,14 @@
                             .order('order_index');
                         if (statusesError) console.error("Error fetching statuses for contact details:", statusesError);
                         else setStatuses(statusesData);
+
+                        // Fetch users for task assignee dropdown
+                        const { data: usersData, error: usersError } = await supabase
+                            .from('user')
+                            .select('id, email');
+                        if (usersError) console.error("Error fetching users for task form:", usersError);
+                        else setUsers(usersData);
+
 
                     } catch (err) {
                         console.error("Unexpected error in ContactDetailsPage:", err);
@@ -2141,6 +2165,65 @@
                 const status = statuses.find(s => s.id === statusId);
                 return status ? status.color : '#6B7280'; // Default gray
             };
+
+            const handleViewDealDetails = (dealId) => {
+                setSelectedDealId(dealId);
+                setCurrentPage('dealDetails');
+            };
+
+            const handleCreateTask = () => {
+                setEditingTask({
+                    title: '',
+                    description: '',
+                    due_date: '',
+                    status: 'pending',
+                    assigned_to_user_id: userId, // Default to current user
+                    contact_id: contactId, // Automatically link to current contact
+                    deal_id: null,
+                });
+                setIsTaskModalOpen(true);
+            };
+
+            const handleSaveTask = async (taskData) => {
+                try {
+                    const taskToSave = {
+                        ...taskData,
+                        assigned_to_user_id: taskData.assigned_to_user_id || userId, // Ensure assignee is set
+                        due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
+                        contact_id: contactId, // Ensure it's linked to this contact
+                        user_id: userId, // The user who created/owns this task entry (for RLS)
+                    };
+
+                    if (editingTask) {
+                        const { error } = await supabase
+                            .from('tasks')
+                            .update(taskToSave)
+                            .eq('id', editingTask.id);
+                        if (error) throw error;
+                        console.log("Задача обновлена:", editingTask.id);
+                    } else {
+                        const { error } = await supabase
+                            .from('tasks')
+                            .insert(taskToSave);
+                        if (error) throw error;
+                        console.log("Новая задача добавлена.");
+                    }
+                    setIsTaskModalOpen(false);
+                    setEditingTask(null);
+                    // Re-fetch tasks to update the list
+                    const { data: tasksData, error: tasksError } = await supabase
+                        .from('tasks')
+                        .select('*, user(id, email)')
+                        .eq('contact_id', contactId)
+                        .or(`assigned_to_user_id.eq.${userId},deal_id.in.(${linkedDeals.map(d => d.id).join(',')})`); // Re-fetch based on current deals
+                    if (tasksError) console.error("Error re-fetching tasks after save:", tasksError);
+                    else setLinkedTasks(tasksData);
+
+                } catch (e) {
+                    console.error("Ошибка при сохранении задачи:", e);
+                }
+            };
+
 
             if (loading) {
                 return <div className="p-6 text-center text-gray-600">Загрузка деталей контакта...</div>;
@@ -2184,7 +2267,11 @@
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {linkedDeals.map(deal => (
-                                <div key={deal.id} className="bg-white rounded-xl shadow-lg p-6">
+                                <div
+                                    key={deal.id}
+                                    onClick={() => handleViewDealDetails(deal.id)} // Make clickable
+                                    className="bg-white rounded-xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition-shadow duration-300"
+                                >
                                     <div className="flex justify-between items-start mb-2">
                                         <h4 className="text-xl font-bold text-gray-800">{deal.name}</h4>
                                         <span
@@ -2196,11 +2283,51 @@
                                     </div>
                                     <p className="text-gray-600 mb-1">Сумма: <span className="font-semibold text-green-700">${deal.amount?.toFixed(2)}</span></p>
                                     <p className="text-gray-600 text-sm">Дата закрытия: {deal.close_date ? new Date(deal.close_date).toLocaleDateString() : 'N/A'}</p>
-                                    {/* Optionally add a button to view deal details */}
                                 </div>
                             ))}
                         </div>
                     )}
+
+                    <div className="mt-8">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-2xl font-bold text-gray-900">Задачи</h3>
+                            <button
+                                onClick={handleCreateTask}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out flex items-center text-sm"
+                            >
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                Новая задача
+                            </button>
+                        </div>
+                        {linkedTasks.length === 0 ? (
+                            <p className="text-center text-gray-600 text-lg mt-6">Нет связанных задач.</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {linkedTasks.map(task => (
+                                    <div key={task.id} className="bg-white rounded-xl shadow-lg p-4">
+                                        <h4 className="font-semibold text-gray-800 text-lg">{task.title}</h4>
+                                        <p className="text-gray-600 text-sm">{task.description}</p>
+                                        <p className="text-gray-500 text-xs mt-1">
+                                            Срок: {task.due_date ? new Date(task.due_date).toLocaleDateString() : 'N/A'} |
+                                            Статус: <span className="font-medium capitalize">{task.status}</span> |
+                                            Ответственный: {task.user ? task.user.email : 'N/A'}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <Modal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} title={editingTask ? "Редактировать задачу" : "Новая задача"}>
+                        <TaskForm
+                            task={editingTask}
+                            contacts={[{ id: contactId, first_name: contact.first_name, last_name: contact.last_name, company: contact.company }]} // Pass only current contact
+                            deals={linkedDeals} // Pass linked deals
+                            users={users} // Pass all users for assignee
+                            onSave={handleSaveTask}
+                            onClose={() => setIsTaskModalOpen(false)}
+                        />
+                    </Modal>
                 </div>
             );
         };
@@ -2208,13 +2335,18 @@
         // --- New Deal Details Page ---
         const DealDetailsPage = ({ dealId, onBack }) => {
             const { supabase, userId } = useContext(AppContext);
+            const { setCurrentPage, setSelectedContactId } = useContext(AppRouterContext); // Get setSelectedContactId
             const [deal, setDeal] = useState(null);
             const [auditLogs, setAuditLogs] = useState([]);
             const [linkedContacts, setLinkedContacts] = useState([]);
             const [linkedTags, setLinkedTags] = useState([]);
+            const [linkedTasks, setLinkedTasks] = useState([]); // New state for tasks
             const [statuses, setStatuses] = useState([]);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
+            const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+            const [editingTask, setEditingTask] = useState(null);
+            const [users, setUsers] = useState([]); // For task assignee
 
             useEffect(() => {
                 if (!supabase || !userId || !dealId) {
@@ -2278,6 +2410,19 @@
                         const tags = dealTagsData ? dealTagsData.map(dt => dt.tags) : [];
                         setLinkedTags(tags);
 
+                        // Fetch tasks linked to this deal
+                        const { data: tasksData, error: tasksError } = await supabase
+                            .from('tasks')
+                            .select('*, user(id, email)') // Select task and join with user table for assignee email
+                            .eq('deal_id', dealId)
+                            .eq('assigned_to_user_id', userId); // Only tasks assigned to current user for RLS
+
+                        if (tasksError) {
+                            console.error("Error fetching linked tasks:", tasksError);
+                        } else {
+                            setLinkedTasks(tasksData);
+                        }
+
                         // Fetch statuses for display
                         const { data: statusesData, error: statusesError } = await supabase
                             .from('deal_statuses')
@@ -2285,6 +2430,13 @@
                             .order('order_index');
                         if (statusesError) console.error("Error fetching statuses for deal details:", statusesError);
                         else setStatuses(statusesData);
+
+                        // Fetch users for task assignee dropdown
+                        const { data: usersData, error: usersError } = await supabase
+                            .from('user')
+                            .select('id, email');
+                        if (usersError) console.error("Error fetching users for task form:", usersError);
+                        else setUsers(usersData);
 
 
                     } catch (err) {
@@ -2307,6 +2459,65 @@
                 const status = statuses.find(s => s.id === statusId);
                 return status ? status.color : '#6B7280'; // Default gray
             };
+
+            const handleViewContactDetails = (contactId) => {
+                setSelectedContactId(contactId);
+                setCurrentPage('contactDetails');
+            };
+
+            const handleCreateTask = () => {
+                setEditingTask({
+                    title: '',
+                    description: '',
+                    due_date: '',
+                    status: 'pending',
+                    assigned_to_user_id: userId, // Default to current user
+                    deal_id: dealId, // Automatically link to current deal
+                    contact_id: null,
+                });
+                setIsTaskModalOpen(true);
+            };
+
+            const handleSaveTask = async (taskData) => {
+                try {
+                    const taskToSave = {
+                        ...taskData,
+                        assigned_to_user_id: taskData.assigned_to_user_id || userId, // Ensure assignee is set
+                        due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
+                        deal_id: dealId, // Ensure it's linked to this deal
+                        user_id: userId, // The user who created/owns this task entry (for RLS)
+                    };
+
+                    if (editingTask) {
+                        const { error } = await supabase
+                            .from('tasks')
+                            .update(taskToSave)
+                            .eq('id', editingTask.id);
+                        if (error) throw error;
+                        console.log("Задача обновлена:", editingTask.id);
+                    } else {
+                        const { error } = await supabase
+                            .from('tasks')
+                            .insert(taskToSave);
+                        if (error) throw error;
+                        console.log("Новая задача добавлена.");
+                    }
+                    setIsTaskModalOpen(false);
+                    setEditingTask(null);
+                    // Re-fetch tasks to update the list
+                    const { data: tasksData, error: tasksError } = await supabase
+                        .from('tasks')
+                        .select('*, user(id, email)')
+                        .eq('deal_id', dealId)
+                        .eq('assigned_to_user_id', userId); // Re-fetch based on current user's assigned tasks
+                    if (tasksError) console.error("Error re-fetching tasks after save:", tasksError);
+                    else setLinkedTasks(tasksData);
+
+                } catch (e) {
+                    console.error("Ошибка при сохранении задачи:", e);
+                }
+            };
+
 
             if (loading) {
                 return <div className="p-6 text-center text-gray-600">Загрузка деталей сделки...</div>;
@@ -2353,7 +2564,14 @@
                                 <h3 className="text-xl font-bold text-gray-800 mb-2">Связанные контакты:</h3>
                                 <ul className="list-disc list-inside text-gray-700">
                                     {linkedContacts.map(contact => (
-                                        <li key={contact.id}>{contact.first_name} {contact.last_name} ({contact.company})</li>
+                                        <li key={contact.id}>
+                                            <button
+                                                onClick={() => handleViewContactDetails(contact.id)}
+                                                className="text-indigo-600 hover:underline text-left"
+                                            >
+                                                {contact.first_name} {contact.last_name} ({contact.company})
+                                            </button>
+                                        </li>
                                     ))}
                                 </ul>
                             </div>
@@ -2373,7 +2591,37 @@
                         )}
                     </div>
 
-                    <h3 className="text-2xl font-bold text-gray-900 mb-4">Журнал изменений</h3>
+                    <div className="mt-8">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-2xl font-bold text-gray-900">Задачи</h3>
+                            <button
+                                onClick={handleCreateTask}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out flex items-center text-sm"
+                            >
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                Новая задача
+                            </button>
+                        </div>
+                        {linkedTasks.length === 0 ? (
+                            <p className="text-center text-gray-600 text-lg mt-6">Нет связанных задач.</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {linkedTasks.map(task => (
+                                    <div key={task.id} className="bg-white rounded-xl shadow-lg p-4">
+                                        <h4 className="font-semibold text-gray-800 text-lg">{task.title}</h4>
+                                        <p className="text-gray-600 text-sm">{task.description}</p>
+                                        <p className="text-gray-500 text-xs mt-1">
+                                            Срок: {task.due_date ? new Date(task.due_date).toLocaleDateString() : 'N/A'} |
+                                            Статус: <span className="font-medium capitalize">{task.status}</span> |
+                                            Ответственный: {task.user ? task.user.email : 'N/A'}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <h3 className="text-2xl font-bold text-gray-900 mb-4 mt-8">Журнал изменений</h3>
                     {auditLogs.length === 0 ? (
                         <p className="text-center text-gray-600 text-lg mt-6">Нет записей об изменениях для этой сделки.</p>
                     ) : (
@@ -2424,6 +2672,355 @@
                             </div>
                         </div>
                     )}
+
+                    <Modal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} title={editingTask ? "Редактировать задачу" : "Новая задача"}>
+                        <TaskForm
+                            task={editingTask}
+                            contacts={linkedContacts} // Pass linked contacts
+                            deals={[{ id: dealId, name: deal.name }]} // Pass only current deal
+                            users={users} // Pass all users for assignee
+                            onSave={handleSaveTask}
+                            onClose={() => setIsTaskModalOpen(false)}
+                        />
+                    </Modal>
+                </div>
+            );
+        };
+
+        const TaskForm = ({ task, contacts, deals, users, onSave, onClose }) => {
+            const [formData, setFormData] = useState(task || {
+                title: '',
+                description: '',
+                due_date: '',
+                status: 'pending',
+                assigned_to_user_id: '',
+                deal_id: '',
+                contact_id: ''
+            });
+
+            useEffect(() => {
+                if (task) {
+                    setFormData({
+                        ...task,
+                        due_date: task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : '',
+                    });
+                }
+            }, [task]);
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                onSave(formData);
+            };
+
+            const statusOptions = [
+                { value: 'pending', label: 'В ожидании' },
+                { value: 'completed', label: 'Завершено' },
+                { value: 'cancelled', label: 'Отменено' }
+            ];
+
+            const userOptions = users.map(u => ({ value: u.id, label: u.email }));
+            const dealOptions = deals.map(d => ({ value: d.id, label: d.name }));
+            const contactOptions = contacts.map(c => ({ value: c.id, label: `${c.first_name} ${c.last_name}` }));
+
+            return (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <InputField label="Название задачи" id="title" value={formData.title} onChange={handleChange} placeholder="Название задачи" />
+                    <TextAreaField label="Описание" id="description" value={formData.description} onChange={handleChange} placeholder="Подробное описание задачи" />
+                    <InputField label="Срок" id="due_date" type="date" value={formData.due_date} onChange={handleChange} />
+                    <SelectField
+                        label="Статус"
+                        id="status"
+                        value={formData.status}
+                        onChange={handleChange}
+                        options={statusOptions}
+                    />
+                    <SelectField
+                        label="Ответственный"
+                        id="assigned_to_user_id"
+                        value={formData.assigned_to_user_id}
+                        onChange={handleChange}
+                        options={[{ value: '', label: 'Выберите менеджера' }, ...userOptions]}
+                    />
+                    <SelectField
+                        label="Привязать к сделке"
+                        id="deal_id"
+                        value={formData.deal_id || ''}
+                        onChange={handleChange}
+                        options={[{ value: '', label: 'Не привязано' }, ...dealOptions]}
+                    />
+                    <SelectField
+                        label="Привязать к контакту"
+                        id="contact_id"
+                        value={formData.contact_id || ''}
+                        onChange={handleChange}
+                        options={[{ value: '', label: 'Не привязано' }, ...contactOptions]}
+                    />
+
+                    <div className="flex justify-end space-x-3 mt-6">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150 ease-in-out"
+                        >
+                            Отмена
+                        </button>
+                        <button
+                            type="submit"
+                            className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                        >
+                            Сохранить задачу
+                        </button>
+                    </div>
+                </form>
+            );
+        };
+
+        const TasksPage = () => {
+            const { supabase, userId } = useContext(AppContext);
+            const { setCurrentPage, setSelectedDealId, setSelectedContactId } = useContext(AppRouterContext);
+            const [tasks, setTasks] = useState([]);
+            const [users, setUsers] = useState([]); // For displaying assignee names
+            const [deals, setDeals] = useState([]); // For displaying linked deal names
+            const [contacts, setContacts] = useState([]); // For displaying linked contact names
+            const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+            const [editingTask, setEditingTask] = useState(null);
+            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+            const [taskToDelete, setTaskToDelete] = useState(null);
+
+            useEffect(() => {
+                if (!supabase || !userId) return;
+
+                const fetchRelatedData = async () => {
+                    // Fetch all users for assignee display
+                    const { data: usersData, error: usersError } = await supabase
+                        .from('user')
+                        .select('id, email');
+                    if (usersError) console.error("Error fetching users for tasks page:", usersError);
+                    else setUsers(usersData);
+
+                    // Fetch all deals for linking display
+                    const { data: dealsData, error: dealsError } = await supabase
+                        .from('deals')
+                        .select('id, name')
+                        .eq('owner_id', userId); // Only deals owned by current user
+                    if (dealsError) console.error("Error fetching deals for tasks page:", dealsError);
+                    else setDeals(dealsData);
+
+                    // Fetch all contacts for linking display
+                    const { data: contactsData, error: contactsError } = await supabase
+                        .from('contacts')
+                        .select('id, first_name, last_name')
+                        .eq('user_id', userId); // Only contacts owned by current user
+                    if (contactsError) console.error("Error fetching contacts for tasks page:", contactsError);
+                    else setContacts(contactsData);
+                };
+
+                fetchRelatedData();
+
+                // Real-time subscription for tasks
+                const tasksChannel = supabase.channel('tasks_changes')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'tasks' },
+                        async payload => {
+                            console.log("Real-time update for tasks:", payload);
+                            const { data: fetchedTasks, error } = await supabase
+                                .from('tasks')
+                                .select('*, user(id, email)') // Join with user table for assignee email
+                                .eq('assigned_to_user_id', userId); // Only tasks assigned to current user (for RLS)
+
+                            if (error) console.error("Error re-fetching tasks:", error);
+                            else setTasks(fetchedTasks);
+                        }
+                    )
+                    .subscribe();
+
+                // Initial fetch for tasks
+                supabase.from('tasks')
+                    .select('*, user(id, email)') // Join with user table for assignee email
+                    .eq('assigned_to_user_id', userId) // Only tasks assigned to current user (for RLS)
+                    .order('due_date', { ascending: true, nullsFirst: false })
+                    .then(({ data, error }) => {
+                        if (error) console.error("Error fetching initial tasks:", error);
+                        else setTasks(data);
+                    });
+
+                return () => tasksChannel.unsubscribe();
+            }, [supabase, userId]);
+
+            const getAssigneeEmail = (userId) => {
+                const user = users.find(u => u.id === userId);
+                return user ? user.email : 'N/A';
+            };
+
+            const getDealName = (dealId) => {
+                const deal = deals.find(d => d.id === dealId);
+                return deal ? deal.name : 'N/A';
+            };
+
+            const getContactName = (contactId) => {
+                const contact = contacts.find(c => c.id === contactId);
+                return contact ? `${contact.first_name} ${contact.last_name}` : 'N/A';
+            };
+
+            const handleSaveTask = async (taskData) => {
+                try {
+                    const taskToSave = {
+                        ...taskData,
+                        assigned_to_user_id: taskData.assigned_to_user_id || userId, // Ensure assignee is set
+                        due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
+                        user_id: userId, // The user who created/owns this task entry (for RLS)
+                    };
+
+                    if (editingTask) {
+                        const { error } = await supabase
+                            .from('tasks')
+                            .update(taskToSave)
+                            .eq('id', editingTask.id);
+                        if (error) throw error;
+                        console.log("Задача обновлена:", editingTask.id);
+                    } else {
+                        const { error } = await supabase
+                            .from('tasks')
+                            .insert(taskToSave);
+                        if (error) throw error;
+                        console.log("Новая задача добавлена.");
+                    }
+                    setIsTaskModalOpen(false);
+                    setEditingTask(null);
+                } catch (e) {
+                    console.error("Ошибка при сохранении задачи:", e);
+                }
+            };
+
+            const handleEditTask = (task) => {
+                setEditingTask(task);
+                setIsTaskModalOpen(true);
+            };
+
+            const handleDeleteClick = (task) => {
+                setTaskToDelete(task);
+                setShowDeleteConfirm(true);
+            };
+
+            const confirmDeleteTask = async () => {
+                if (!taskToDelete) return;
+                try {
+                    const { error } = await supabase
+                        .from('tasks')
+                        .delete()
+                        .eq('id', taskToDelete.id);
+                    if (error) throw error;
+                    console.log("Задача удалена:", taskToDelete.id);
+                    setShowDeleteConfirm(false);
+                    setTaskToDelete(null);
+                } catch (e) {
+                    console.error("Ошибка при удалении задачи:", e);
+                }
+            };
+
+            return (
+                <div className="p-6 bg-gray-50 min-h-screen rounded-lg shadow-inner">
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-3xl font-extrabold text-gray-900">Задачи</h2>
+                        <button
+                            onClick={() => { setEditingTask(null); setIsTaskModalOpen(true); }}
+                            className="px-6 py-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out flex items-center"
+                        >
+                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                            Новая задача
+                        </button>
+                    </div>
+
+                    {tasks.length === 0 ? (
+                        <p className="text-center text-gray-600 text-lg mt-10">Пока нет задач. Создай первую!</p>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {tasks.map(task => (
+                                <div key={task.id} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden">
+                                    <div className="p-6">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <h3 className="text-xl font-bold text-gray-800">{task.title}</h3>
+                                            <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize
+                                                ${task.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                                  task.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                                  'bg-gray-100 text-gray-800'}`
+                                            }>
+                                                {task.status}
+                                            </span>
+                                        </div>
+                                        <p className="text-gray-600 mb-2 text-sm">{task.description}</p>
+                                        <p className="text-gray-600 mb-1">Срок: <span className="font-semibold">{task.due_date ? new Date(task.due_date).toLocaleDateString() : 'N/A'}</span></p>
+                                        <p className="text-gray-600 mb-1">Ответственный: <span className="font-semibold">{getAssigneeEmail(task.assigned_to_user_id)}</span></p>
+                                        {task.deal_id && (
+                                            <p className="text-gray-600 mb-1">Сделка: <span className="font-semibold">
+                                                <button onClick={() => { setSelectedDealId(task.deal_id); setCurrentPage('dealDetails'); }} className="text-indigo-600 hover:underline">
+                                                    {getDealName(task.deal_id)}
+                                                </button>
+                                            </span></p>
+                                        )}
+                                        {task.contact_id && (
+                                            <p className="text-gray-600 mb-1">Контакт: <span className="font-semibold">
+                                                <button onClick={() => { setSelectedContactId(task.contact_id); setCurrentPage('contactDetails'); }} className="text-indigo-600 hover:underline">
+                                                    {getContactName(task.contact_id)}
+                                                </button>
+                                            </span></p>
+                                        )}
+                                    </div>
+                                    <div className="bg-gray-50 border-t border-gray-100 px-6 py-4 flex justify-end space-x-2">
+                                        <button
+                                            onClick={() => handleEditTask(task)}
+                                            className="text-indigo-600 hover:text-indigo-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-indigo-50 transition duration-150"
+                                        >
+                                            Редактировать
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteClick(task)}
+                                            className="text-red-600 hover:text-red-800 font-medium text-sm px-3 py-1 rounded-lg hover:bg-red-50 transition duration-150"
+                                        >
+                                            Удалить
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <Modal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} title={editingTask ? "Редактировать задачу" : "Новая задача"}>
+                        <TaskForm
+                            task={editingTask}
+                            contacts={contacts}
+                            deals={deals}
+                            users={users}
+                            onSave={handleSaveTask}
+                            onClose={() => setIsTaskModalOpen(false)}
+                        />
+                    </Modal>
+
+                    <Modal isOpen={showDeleteConfirm} onClose={() => setIsTaskModalOpen(false)} title="Подтверждение удаления">
+                        <p className="text-gray-700 mb-6">Вы уверены, что хотите удалить задачу "{taskToDelete?.title}"? Это действие необратимо.</p>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowDeleteConfirm(false)}
+                                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition duration-150"
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmDeleteTask}
+                                className="px-6 py-2 bg-red-600 text-white rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition duration-150 ease-in-out"
+                            >
+                                Удалить
+                            </button>
+                        </div>
+                    </Modal>
                 </div>
             );
         };
@@ -2432,7 +3029,7 @@
         const AppRouterContext = createContext(null);
 
         const App = () => {
-            const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard', 'deals', 'contacts', 'history', 'integrations', 'funnel', 'analytics', 'contactDetails', 'dealDetails'
+            const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard', 'deals', 'contacts', 'history', 'integrations', 'funnel', 'analytics', 'contactDetails', 'dealDetails', 'tasks'
             const [selectedContactId, setSelectedContactId] = useState(null); // State for ContactDetailsPage
             const [selectedDealId, setSelectedDealId] = useState(null); // State for DealDetailsPage
             const { userId } = useContext(AppContext); // Get userId from AppContext
@@ -2468,6 +3065,8 @@
                         return <IntegrationsPage />;
                     case 'analytics':
                         return <AnalyticsPage />;
+                    case 'tasks':
+                        return <TasksPage />; // New Tasks page
                     case 'contactDetails':
                         return <ContactDetailsPage contactId={selectedContactId} onBack={() => setCurrentPage('contacts')} />;
                     case 'dealDetails':
@@ -2489,6 +3088,7 @@
                             <NavItem page="deals" label="Сделки" icon="🤝" />
                             <NavItem page="funnel" label="Воронка" icon="📈" />
                             <NavItem page="contacts" label="Контакты" icon="👤" />
+                            <NavItem page="tasks" label="Задачи" icon="✅" /> {/* New Nav Item */}
                             <NavItem page="history" label="История" icon="📚" />
                             <NavItem page="integrations" label="Интеграции" icon="🔌" />
                             <NavItem page="analytics" label="Аналитика" icon="📊" />

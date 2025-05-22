@@ -61,72 +61,9 @@
             const [userId, setUserId] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
-
-            /*
-             * ВАЖНО: Ошибка 401 (Unauthorized) обычно означает, что у пользователя
-             * (даже анонимного, который создается при signInAnonymously)
-             * нет необходимых разрешений для доступа к таблицам в Supabase.
-             *
-             * Это контролируется **Политиками Безопасности на Уровне Строк (Row Level Security - RLS)**
-             * в вашей базе данных Supabase.
-             *
-             * Чтобы это приложение работало, вам нужно настроить RLS-политики
-             * в панели управления Supabase для каждой таблицы (public.user, public.contacts,
-             * public.deal_statuses, public.deals, public.interactions, public.integrations,
-             * public.deal_audit_logs, public.tags, public.deal_tags, public.tasks).
-             *
-             * Пример политик, которые вам могут понадобиться:
-             *
-             * 1. Для таблиц, где пользователи видят только свои данные (contacts, deals, interactions, integrations, deal_audit_logs, tags, deal_tags, tasks):
-             * - Включите RLS для таблицы.
-             * - Создайте политику "SELECT":
-             * Name: "Allow users to read their own data"
-             * For: SELECT
-             * Using expression: auth.uid() = user_id  (или owner_id для таблицы deals, или assigned_to_user_id для tasks)
-             * Roles: authenticated, anon (если вы хотите, чтобы анонимные пользователи могли видеть свои данные)
-             * - Создайте политику "INSERT":
-             * Name: "Allow users to insert their own data"
-             * For: INSERT
-             * With check expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
-             * Roles: authenticated, anon
-             * - Создайте политику "UPDATE":
-             * Name: "Allow users to update their own data"
-             * For: UPDATE
-             * Using expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
-             * With check expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
-             * Roles: authenticated, anon
-             * - Создайте политику "DELETE":
-             * Name: "Allow users to delete their own data"
-             * For: DELETE
-             * Using expression: auth.uid() = user_id (или owner_id, или assigned_to_user_id)
-             * Roles: authenticated, anon
-             *
-             * 2. Для таблицы `deal_statuses` (если она содержит общие данные для всех):
-             * - Включите RLS для таблицы.
-             * - Создайте политику "SELECT":
-             * Name: "Allow all users to read deal statuses"
-             * For: SELECT
-             * Using expression: true
-             * Roles: public, authenticated, anon
-             *
-             * 3. Для таблицы `public.user` (если она используется для профилей, связанных с Supabase Auth):
-             * - Включите RLS для таблицы.
-             * - Создайте политику "SELECT": `auth.uid() = id`
-             * - Создайте политику "INSERT": `auth.uid() = id`
-             * - Создайте политику "UPDATE": `auth.uid() = id`
-             *
-             * Убедитесь, что `user_id` (или `owner_id` в таблице `deals`, или `assigned_to_user_id` в `tasks`) в ваших таблицах
-             * соответствует `auth.uid()` текущего пользователя.
-             *
-             * Ошибка `AuthRetryableFetchError` со статусом `0` обычно указывает на проблемы с сетью,
-             * такие как блокировка CORS, проблемы с брандмауэром/прокси, или если проект Supabase
-             * неактивен/приостановлен. Убедитесь, что ваш проект Supabase активен и домен,
-             * с которого вы запускаете приложение (например, GitHub Pages URL),
-             * добавлен в список разрешенных доменов CORS в настройках вашего проекта Supabase (Project Settings -> API).
-             */
+            const [isAuthenticated, setIsAuthenticated] = useState(false); // New state for authentication status
 
             // Функция для инициализации Supabase клиента
-            // Обернуто в useCallback, чтобы обеспечить стабильную ссылку
             const initializeSupabaseClient = useCallback(async () => {
                 console.log("Supabase: Попытка инициализации клиента...");
                 try {
@@ -141,7 +78,6 @@
                     }
                     console.log("Supabase: URL и Anon Key присутствуют.");
 
-                    // Проверяем, доступен ли createClient из глобального объекта window
                     if (!window.supabase || !window.supabase.createClient) {
                         setError("Библиотека клиента Supabase не загружена в глобальный объект window. Пожалуйста, проверьте CDN-ссылку.");
                         setLoading(false);
@@ -154,50 +90,35 @@
                     setSupabase(supabaseClient);
                     console.log("Supabase: Клиент создан.");
 
-                    // Попытка получить текущую сессию или войти анонимно
-                    console.log("Supabase: Попытка получить сессию или войти анонимно...");
+                    // Проверяем текущую сессию
+                    console.log("Supabase: Проверка текущей сессии...");
                     const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
                     if (sessionError) {
                         console.error("Supabase: Ошибка при получении сессии:", sessionError);
-                        // Специальная обработка для ошибки "Invalid API key"
-                        if (sessionError.message && sessionError.message.includes("Invalid API key")) {
-                            setError("Недействительный API-ключ Supabase. Пожалуйста, перепроверьте ключ в настройках проекта Supabase (API Project Settings).");
-                        } else {
-                            setError("Ошибка при получении сессии Supabase: " + sessionError.message);
-                        }
+                        setError("Ошибка при получении сессии Supabase: " + sessionError.message);
                         setLoading(false);
-                        return; // Выходим после ошибки
+                        return;
                     }
 
                     if (session) {
                         setUserId(session.user.id);
+                        setIsAuthenticated(true);
                         console.log("Supabase: Пользователь вошел в систему с ID:", session.user.id);
                     } else {
-                        // Вход анонимно, если сессия не найдена
-                        console.log("Supabase: Сессия не найдена, попытка анонимного входа...");
-                        const { data, error: signInError } = await supabaseClient.auth.signInAnonymously();
-                        if (signInError) {
-                            console.error("Supabase: Ошибка при анонимном входе:", signInError);
-                             // Специальная обработка для ошибки "Invalid API key"
-                            if (signInError.message && signInError.message.includes("Invalid API key")) {
-                                setError("Недействительный API-ключ Supabase. Пожалуйста, перепроверьте ключ в настройках проекта Supabase (API Project Settings).");
-                            } else {
-                                setError("Ошибка при анонимном входе в Supabase: " + signInError.message);
-                            }
-                            setLoading(false);
-                            return; // Выходим после ошибки
-                        }
-                        setUserId(data.user.id);
-                        console.log("Supabase: Анонимный вход выполнен, ID пользователя:", data.user.id);
+                        setUserId(null);
+                        setIsAuthenticated(false);
+                        console.log("Supabase: Сессия не найдена, требуется авторизация.");
                     }
 
                     // Слушатель изменений состояния аутентификации
                     const { data: authListener } = supabaseClient.auth.onAuthStateChange((_event, session) => {
                         if (session) {
                             setUserId(session.user.id);
+                            setIsAuthenticated(true);
                             console.log("Supabase: Состояние аутентификации изменилось, новый ID пользователя:", session.user.id);
                         } else {
-                            setUserId(null); // Пользователь вышел или сессия завершилась
+                            setUserId(null);
+                            setIsAuthenticated(false);
                             console.log("Supabase: Пользователь вышел из системы.");
                         }
                     });
@@ -215,31 +136,20 @@
                     setError("Не удалось инициализировать Supabase: " + err.message);
                     setLoading(false);
                 }
-            }, [setSupabase, setUserId, setLoading, setError]); // Зависимости useCallback
+            }, []); // Зависимости useCallback
 
             useEffect(() => {
-                // Вспомогательная функция, которая будет рекурсивно вызываться
                 const loadSupabaseAndInitializeInternal = () => {
-                    // Проверяем наличие createClient в глобальном объекте window
                     if (window.supabase && window.supabase.createClient) {
                         console.log("Клиент Supabase найден в объекте window. Инициализация...");
-                        initializeSupabaseClient(); // Вызываем фактическую функцию инициализации
+                        initializeSupabaseClient();
                     } else {
                         console.log("Клиент Supabase еще не доступен, повторяем попытку...");
-                        // Важно передать loadSupabaseAndInitializeInternal, чтобы setTimeout вызывал сам себя
                         setTimeout(loadSupabaseAndInitializeInternal, 100); 
                     }
                 };
-
-                // Начинаем опрос для клиента Supabase
                 loadSupabaseAndInitializeInternal();
-
-                // Очистка не требуется для опроса, так как он останавливается после инициализации
-            }, [initializeSupabaseClient]); // Зависит от initializeSupabaseClient
-            // NOTE: Если initializeSupabaseClient не обернут в useCallback,
-            // этот useEffect будет перезапускаться при каждом рендере,
-            // что может привести к бесконечным циклам или ошибкам.
-
+            }, [initializeSupabaseClient]);
 
             if (loading) {
                 return (
@@ -258,7 +168,7 @@
             }
 
             return (
-                <AppContext.Provider value={{ supabase, userId }}>
+                <AppContext.Provider value={{ supabase, userId, isAuthenticated, setIsAuthenticated }}>
                     {children}
                 </AppContext.Provider>
             );
@@ -273,7 +183,6 @@
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 relative transform transition-all duration-300 scale-100 opacity-100">
                         <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">{title}</h3>
                         <button
-                            type="button" // Добавлено type="button"
                             onClick={onClose}
                             className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-3xl leading-none"
                             aria-label="Закрыть"
@@ -342,6 +251,116 @@
                 ></textarea>
             </div>
         );
+
+        // --- Auth Page ---
+        const AuthPage = () => {
+            const { supabase, setIsAuthenticated } = useContext(AppContext);
+            const [isRegister, setIsRegister] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [fullName, setFullName] = useState('');
+            const [authMessage, setAuthMessage] = useState('');
+            const [authError, setAuthError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                setAuthMessage('');
+                setAuthError('');
+                setIsLoading(true);
+
+                try {
+                    if (isRegister) {
+                        const { data, error } = await supabase.auth.signUp({
+                            email,
+                            password,
+                            options: {
+                                data: { full_name: fullName } // Pass full_name to auth.users metadata
+                            }
+                        });
+                        if (error) throw error;
+                        setAuthMessage('Регистрация успешна! Проверьте свою почту для подтверждения.');
+                        // Optionally sign in directly after successful registration if email confirmation is not required
+                        // await supabase.auth.signInWithPassword({ email, password });
+                        // setIsAuthenticated(true);
+                    } else {
+                        const { data, error } = await supabase.auth.signInWithPassword({
+                            email,
+                            password,
+                        });
+                        if (error) throw error;
+                        setIsAuthenticated(true);
+                        setAuthMessage('Вход выполнен успешно!');
+                    }
+                } catch (error) {
+                    setAuthError(error.message);
+                    console.error("Auth error:", error);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
+                        <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
+                            {isRegister ? 'Регистрация' : 'Вход'}
+                        </h2>
+                        <form onSubmit={handleAuth} className="space-y-4">
+                            {isRegister && (
+                                <InputField
+                                    label="Полное имя"
+                                    id="fullName"
+                                    type="text"
+                                    value={fullName}
+                                    onChange={(e) => setFullName(e.target.value)}
+                                    placeholder="Ваше полное имя"
+                                />
+                            )}
+                            <InputField
+                                label="Email"
+                                id="email"
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder="ваш@email.com"
+                            />
+                            <InputField
+                                label="Пароль"
+                                id="password"
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="••••••••"
+                            />
+                            {authError && <p className="text-red-600 text-sm mt-2">{authError}</p>}
+                            {authMessage && <p className="text-green-600 text-sm mt-2">{authMessage}</p>}
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out text-lg font-semibold"
+                            >
+                                {isLoading ? 'Загрузка...' : (isRegister ? 'Зарегистрироваться' : 'Войти')}
+                            </button>
+                        </form>
+                        <p className="text-center text-gray-600 mt-6">
+                            {isRegister ? 'Уже есть аккаунт?' : 'Нет аккаунта?'}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsRegister(prev => !prev);
+                                    setAuthMessage('');
+                                    setAuthError('');
+                                }}
+                                className="text-indigo-600 hover:underline ml-2"
+                            >
+                                {isRegister ? 'Войти' : 'Зарегистрироваться'}
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            );
+        };
 
         // --- Pages/Components ---
 
@@ -566,7 +585,7 @@
                         { event: '*', schema: 'public', table: 'contacts' },
                         payload => {
                             console.log("Real-time update for contacts on DealsPage:", payload);
-                            supabase.from('contacts').select('*').eq('user_id', userId)
+                            supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching contacts:", error);
                                     else setContacts(data);
@@ -576,7 +595,7 @@
                     .subscribe();
 
                 // Initial fetch for contacts
-                supabase.from('contacts').select('*').eq('user_id', userId)
+                supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial contacts:", error);
                         else setContacts(data);
@@ -589,7 +608,7 @@
                         { event: '*', schema: 'public', table: 'tags' },
                         payload => {
                             console.log("Real-time update for tags on DealsPage:", payload);
-                            supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`) // Fetch user-specific or global tags
+                            supabase.from('tags').select('*') // RLS allows all authenticated users to read all tags
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching tags:", error);
                                     else setTags(data);
@@ -599,7 +618,7 @@
                     .subscribe();
 
                 // Initial fetch for tags
-                supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`)
+                supabase.from('tags').select('*') // RLS allows all authenticated users to read all tags
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial tags:", error);
                         else setTags(data);
@@ -615,8 +634,7 @@
                             console.log("Real-time update for deals:", payload);
                             const { data: fetchedDeals, error } = await supabase
                                 .from('deals')
-                                .select('*')
-                                .eq('owner_id', userId);
+                                .select('*'); // RLS allows all authenticated users to read all deals
 
                             if (error) {
                                 console.error("Error re-fetching deals:", error);
@@ -649,7 +667,7 @@
                     .subscribe();
 
                 // Initial fetch for deals
-                supabase.from('deals').select('*').eq('owner_id', userId)
+                supabase.from('deals').select('*') // RLS allows all authenticated users to read all deals
                     .then(async ({ data: fetchedDeals, error }) => {
                         if (error) {
                             console.error("Error fetching initial deals:", error);
@@ -935,7 +953,7 @@
                         { event: '*', schema: 'public', table: 'contacts' },
                         payload => {
                             console.log("Real-time update for contacts:", payload);
-                            supabase.from('contacts').select('*').eq('user_id', userId)
+                            supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching contacts:", error);
                                     else setContacts(data);
@@ -945,7 +963,7 @@
                     .subscribe();
 
                 // Initial fetch for contacts
-                supabase.from('contacts').select('*').eq('user_id', userId)
+                supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial contacts:", error);
                         else setContacts(data);
@@ -1113,16 +1131,14 @@
                     // Fetch deals
                     const { data: dealsData, error: dealsError } = await supabase
                         .from('deals')
-                        .select('id, name')
-                        .eq('owner_id', userId);
+                        .select('id, name'); // RLS allows all authenticated users to read all deals
                     if (dealsError) console.error("Error fetching deals for history:", dealsError);
                     else setDeals(dealsData);
 
                     // Fetch contacts
                     const { data: contactsData, error: contactsError } = await supabase
                         .from('contacts')
-                        .select('id, first_name, last_name')
-                        .eq('user_id', userId);
+                        .select('id, first_name, last_name'); // RLS allows all authenticated users to read all contacts
                     if (contactsError) console.error("Error fetching contacts for history:", contactsError);
                     else setContacts(contactsData);
                 };
@@ -1136,7 +1152,7 @@
                         { event: '*', schema: 'public', table: 'interactions' },
                         payload => {
                             console.log("Real-time update for interactions:", payload);
-                            supabase.from('interactions').select('*').eq('user_id', userId).order('interaction_date', { ascending: false })
+                            supabase.from('interactions').select('*').order('interaction_date', { ascending: false }) // RLS allows all authenticated users to read all interactions
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching interactions:", error);
                                     else setInteractions(data);
@@ -1146,7 +1162,7 @@
                     .subscribe();
 
                 // Initial fetch for interactions
-                supabase.from('interactions').select('*').eq('user_id', userId).order('interaction_date', { ascending: false })
+                supabase.from('interactions').select('*').order('interaction_date', { ascending: false }) // RLS allows all authenticated users to read all interactions
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial interactions:", error);
                         else setInteractions(data);
@@ -1218,7 +1234,7 @@
                         { event: '*', schema: 'public', table: 'integrations' },
                         payload => {
                             console.log("Real-time update for integrations:", payload);
-                            supabase.from('integrations').select('*').eq('user_id', userId)
+                            supabase.from('integrations').select('*') // RLS allows all authenticated users to read all integrations
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching integrations:", error);
                                     else setIntegrations(data);
@@ -1228,7 +1244,7 @@
                     .subscribe();
 
                 // Initial fetch for integrations
-                supabase.from('integrations').select('*').eq('user_id', userId)
+                supabase.from('integrations').select('*') // RLS allows all authenticated users to read all integrations
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial integrations:", error);
                         else setIntegrations(data);
@@ -1455,24 +1471,21 @@
                         // Fetch deals
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
-                            .select('*')
-                            .eq('owner_id', userId);
+                            .select('*'); // RLS allows all authenticated users to read all deals
                         if (dealsError) console.error("Error fetching deals for dashboard:", dealsError);
                         else setDeals(dealsData);
 
                         // Fetch contacts
                         const { data: contactsData, error: contactsError } = await supabase
                             .from('contacts')
-                            .select('*')
-                            .eq('user_id', userId);
+                            .select('*'); // RLS allows all authenticated users to read all contacts
                         if (contactsError) console.error("Error fetching contacts for dashboard:", contactsError);
                         else setContacts(contactsData);
 
                         // Fetch interactions
                         const { data: interactionsData, error: interactionsError } = await supabase
                             .from('interactions')
-                            .select('*')
-                            .eq('user_id', userId);
+                            .select('*'); // RLS allows all authenticated users to read all interactions
                         if (interactionsError) console.error("Error fetching interactions for dashboard:", interactionsError);
                         else setInteractions(interactionsData);
 
@@ -1589,9 +1602,9 @@
                         { event: '*', schema: 'public', table: 'contacts' },
                         payload => {
                             console.log("Real-time update for contacts on FunnelPage:", payload);
-                            supabase.from('contacts').select('*').eq('user_id', userId)
+                            supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
                                 .then(({ data, error }) => {
-                                    if (error) console.error("Error re-fetching contacts for FunnelPage:", error);
+                                    if (error) console.error("Error re-fetching contacts:", error);
                                     else setContacts(data);
                                 });
                         }
@@ -1599,7 +1612,7 @@
                     .subscribe();
 
                 // Initial fetch for contacts
-                supabase.from('contacts').select('*').eq('user_id', userId)
+                supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial contacts:", error);
                         else setContacts(data);
@@ -1612,7 +1625,7 @@
                         { event: '*', schema: 'public', table: 'tags' },
                         payload => {
                             console.log("Real-time update for tags on FunnelPage:", payload);
-                            supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`)
+                            supabase.from('tags').select('*') // RLS allows all authenticated users to read all tags
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching tags:", error);
                                     else setTags(data);
@@ -1622,7 +1635,7 @@
                     .subscribe();
 
                 // Initial fetch for tags
-                supabase.from('tags').select('*').or(`user_id.eq.${userId},user_id.is.null`)
+                supabase.from('tags').select('*') // RLS allows all authenticated users to read all tags
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial tags:", error);
                         else setTags(data);
@@ -1638,8 +1651,7 @@
                             console.log("Real-time update for deals on FunnelPage:", payload);
                             const { data: fetchedDeals, error } = await supabase
                                 .from('deals')
-                                .select('*')
-                                .eq('owner_id', userId);
+                                .select('*'); // RLS allows all authenticated users to read all deals
 
                             if (error) {
                                 console.error("Error re-fetching deals for FunnelPage:", error);
@@ -1669,7 +1681,7 @@
                     .subscribe();
 
                 // Initial fetch for deals
-                supabase.from('deals').select('*').eq('owner_id', userId)
+                supabase.from('deals').select('*') // RLS allows all authenticated users to read all deals
                     .then(async ({ data: fetchedDeals, error }) => {
                         if (error) {
                             console.error("Error fetching initial deals for FunnelPage:", error);
@@ -1908,24 +1920,21 @@
                         // Fetch deals
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
-                            .select('*')
-                            .eq('owner_id', userId);
+                            .select('*'); // RLS allows all authenticated users to read all deals
                         if (dealsError) console.error("Error fetching deals for dashboard:", dealsError);
                         else setDeals(dealsData);
 
                         // Fetch contacts
                         const { data: contactsData, error: contactsError } = await supabase
                             .from('contacts')
-                            .select('*')
-                            .eq('user_id', userId);
+                            .select('*'); // RLS allows all authenticated users to read all contacts
                         if (contactsError) console.error("Error fetching contacts for dashboard:", contactsError);
                         else setContacts(contactsData);
 
                         // Fetch interactions
                         const { data: interactionsData, error: interactionsError } = await supabase
                             .from('interactions')
-                            .select('*')
-                            .eq('user_id', userId);
+                            .select('*'); // RLS allows all authenticated users to read all interactions
                         if (interactionsError) console.error("Error fetching interactions for dashboard:", interactionsError);
                         else setInteractions(interactionsData);
 
@@ -2087,9 +2096,8 @@
                         const { data: contactData, error: contactError } = await supabase
                             .from('contacts')
                             .select('*')
-                            .eq('id', contactId)
-                            .eq('user_id', userId) // Ensure user owns the contact
-                            .single();
+                            .eq('id', contactId) // Use 'id' for fetching contact
+                            .single(); // RLS allows all authenticated users to read all contacts
 
                         if (contactError) {
                             console.error("Error fetching contact details:", contactError);
@@ -2102,8 +2110,7 @@
                         // Fetch deals linked to this contact
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
-                            .select('*')
-                            .eq('owner_id', userId);
+                            .select('*'); // RLS allows all authenticated users to read all deals
 
                         if (dealsError) {
                             console.error("Error fetching linked deals:", dealsError);
@@ -2119,14 +2126,14 @@
                         // Fetch tasks linked to this contact
                         const { data: tasksData, error: tasksError } = await supabase
                             .from('tasks')
-                            .select('*, user(id, email)') // Select task and join with user table for assignee email
-                            .eq('contact_id', contactId)
-                            .or(`assigned_to_user_id.eq.${userId},deal_id.in.(${dealsData.map(d => d.id).join(',')})`); // Tasks assigned to current user OR linked to current user's deals
+                            .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
                         
                         if (tasksError) {
                             console.error("Error fetching linked tasks:", tasksError);
                         } else {
-                            setLinkedTasks(tasksData);
+                            // Filter tasks client-side if RLS is too broad for display
+                            const filteredTasks = tasksData.filter(task => task.contact_id === contactId);
+                            setLinkedTasks(filteredTasks);
                         }
 
                         // Fetch statuses for deal names
@@ -2187,10 +2194,13 @@
             const handleSaveTask = async (taskData) => {
                 try {
                     const taskToSave = {
-                        ...taskData,
-                        assigned_to_user_id: taskData.assigned_to_user_id || userId, // Ensure assignee is set
+                        title: taskData.title,
+                        description: taskData.description,
                         due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
-                        contact_id: contactId, // Ensure it's linked to this contact
+                        status: taskData.status,
+                        assigned_to_user_id: taskData.assigned_to_user_id || null, // Convert empty string or undefined to null
+                        deal_id: taskData.deal_id || null, // Convert empty string or undefined to null
+                        contact_id: taskData.contact_id || null, // Convert empty string or undefined to null
                         user_id: userId, // The user who created/owns this task entry (for RLS)
                     };
 
@@ -2213,11 +2223,12 @@
                     // Re-fetch tasks to update the list
                     const { data: tasksData, error: tasksError } = await supabase
                         .from('tasks')
-                        .select('*, user(id, email)')
-                        .eq('contact_id', contactId)
-                        .or(`assigned_to_user_id.eq.${userId},deal_id.in.(${linkedDeals.map(d => d.id).join(',')})`); // Re-fetch based on current deals
+                        .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
                     if (tasksError) console.error("Error re-fetching tasks after save:", tasksError);
-                    else setLinkedTasks(tasksData);
+                    else {
+                        const filteredTasks = tasksData.filter(task => task.contact_id === contactId);
+                        setLinkedTasks(filteredTasks);
+                    }
 
                 } catch (e) {
                     console.error("Ошибка при сохранении задачи:", e);
@@ -2363,8 +2374,7 @@
                             .from('deals')
                             .select('*')
                             .eq('id', dealId)
-                            .eq('owner_id', userId) // Ensure user owns the deal
-                            .single();
+                            .single(); // RLS allows all authenticated users to read all deals
 
                         if (dealError) {
                             console.error("Error fetching deal details:", dealError);
@@ -2413,14 +2423,14 @@
                         // Fetch tasks linked to this deal
                         const { data: tasksData, error: tasksError } = await supabase
                             .from('tasks')
-                            .select('*, user(id, email)') // Select task and join with user table for assignee email
-                            .eq('deal_id', dealId)
-                            .eq('assigned_to_user_id', userId); // Only tasks assigned to current user for RLS
+                            .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
 
                         if (tasksError) {
                             console.error("Error fetching linked tasks:", tasksError);
                         } else {
-                            setLinkedTasks(tasksData);
+                            // Filter tasks client-side if RLS is too broad for display
+                            const filteredTasks = tasksData.filter(task => task.deal_id === dealId);
+                            setLinkedTasks(filteredTasks);
                         }
 
                         // Fetch statuses for display
@@ -2481,10 +2491,13 @@
             const handleSaveTask = async (taskData) => {
                 try {
                     const taskToSave = {
-                        ...taskData,
-                        assigned_to_user_id: taskData.assigned_to_user_id || userId, // Ensure assignee is set
+                        title: taskData.title,
+                        description: taskData.description,
                         due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
-                        deal_id: dealId, // Ensure it's linked to this deal
+                        status: taskData.status,
+                        assigned_to_user_id: taskData.assigned_to_user_id || null, // Convert empty string or undefined to null
+                        deal_id: taskData.deal_id || null, // Convert empty string or undefined to null
+                        contact_id: taskData.contact_id || null, // Convert empty string or undefined to null
                         user_id: userId, // The user who created/owns this task entry (for RLS)
                     };
 
@@ -2507,11 +2520,12 @@
                     // Re-fetch tasks to update the list
                     const { data: tasksData, error: tasksError } = await supabase
                         .from('tasks')
-                        .select('*, user(id, email)')
-                        .eq('deal_id', dealId)
-                        .eq('assigned_to_user_id', userId); // Re-fetch based on current user's assigned tasks
+                        .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
                     if (tasksError) console.error("Error re-fetching tasks after save:", tasksError);
-                    else setLinkedTasks(tasksData);
+                    else {
+                        const filteredTasks = tasksData.filter(task => task.deal_id === dealId);
+                        setLinkedTasks(filteredTasks);
+                    }
 
                 } catch (e) {
                     console.error("Ошибка при сохранении задачи:", e);
@@ -2742,21 +2756,21 @@
                     <SelectField
                         label="Ответственный"
                         id="assigned_to_user_id"
-                        value={formData.assigned_to_user_id}
+                        value={formData.assigned_to_user_id || ''} // Ensure default is empty string for select
                         onChange={handleChange}
                         options={[{ value: '', label: 'Выберите менеджера' }, ...userOptions]}
                     />
                     <SelectField
                         label="Привязать к сделке"
                         id="deal_id"
-                        value={formData.deal_id || ''}
+                        value={formData.deal_id || ''} // Ensure default is empty string for select
                         onChange={handleChange}
                         options={[{ value: '', label: 'Не привязано' }, ...dealOptions]}
                     />
                     <SelectField
                         label="Привязать к контакту"
                         id="contact_id"
-                        value={formData.contact_id || ''}
+                        value={formData.contact_id || ''} // Ensure default is empty string for select
                         onChange={handleChange}
                         options={[{ value: '', label: 'Не привязано' }, ...contactOptions]}
                     />
@@ -2806,16 +2820,14 @@
                     // Fetch all deals for linking display
                     const { data: dealsData, error: dealsError } = await supabase
                         .from('deals')
-                        .select('id, name')
-                        .eq('owner_id', userId); // Only deals owned by current user
+                        .select('id, name'); // RLS allows all authenticated users to read all deals
                     if (dealsError) console.error("Error fetching deals for tasks page:", dealsError);
                     else setDeals(dealsData);
 
                     // Fetch all contacts for linking display
                     const { data: contactsData, error: contactsError } = await supabase
                         .from('contacts')
-                        .select('id, first_name, last_name')
-                        .eq('user_id', userId); // Only contacts owned by current user
+                        .select('id, first_name, last_name'); // RLS allows all authenticated users to read all contacts
                     if (contactsError) console.error("Error fetching contacts for tasks page:", contactsError);
                     else setContacts(contactsData);
                 };
@@ -2831,8 +2843,7 @@
                             console.log("Real-time update for tasks:", payload);
                             const { data: fetchedTasks, error } = await supabase
                                 .from('tasks')
-                                .select('*, user(id, email)') // Join with user table for assignee email
-                                .eq('assigned_to_user_id', userId); // Only tasks assigned to current user (for RLS)
+                                .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
 
                             if (error) console.error("Error re-fetching tasks:", error);
                             else setTasks(fetchedTasks);
@@ -2843,7 +2854,6 @@
                 // Initial fetch for tasks
                 supabase.from('tasks')
                     .select('*, user(id, email)') // Join with user table for assignee email
-                    .eq('assigned_to_user_id', userId) // Only tasks assigned to current user (for RLS)
                     .order('due_date', { ascending: true, nullsFirst: false })
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial tasks:", error);
@@ -2871,9 +2881,13 @@
             const handleSaveTask = async (taskData) => {
                 try {
                     const taskToSave = {
-                        ...taskData,
-                        assigned_to_user_id: taskData.assigned_to_user_id || userId, // Ensure assignee is set
+                        title: taskData.title,
+                        description: taskData.description,
                         due_date: taskData.due_date ? new Date(taskData.due_date).toISOString() : null,
+                        status: taskData.status,
+                        assigned_to_user_id: taskData.assigned_to_user_id || null, // Convert empty string or undefined to null
+                        deal_id: taskData.deal_id || null, // Convert empty string or undefined to null
+                        contact_id: taskData.contact_id || null, // Convert empty string or undefined to null
                         user_id: userId, // The user who created/owns this task entry (for RLS)
                     };
 
@@ -3032,7 +3046,20 @@
             const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard', 'deals', 'contacts', 'history', 'integrations', 'funnel', 'analytics', 'contactDetails', 'dealDetails', 'tasks'
             const [selectedContactId, setSelectedContactId] = useState(null); // State for ContactDetailsPage
             const [selectedDealId, setSelectedDealId] = useState(null); // State for DealDetailsPage
-            const { userId } = useContext(AppContext); // Get userId from AppContext
+            const { userId, isAuthenticated, supabase } = useContext(AppContext); // Get userId and isAuthenticated from AppContext
+
+            const handleLogout = async () => {
+                if (supabase) {
+                    const { error } = await supabase.auth.signOut();
+                    if (error) {
+                        console.error("Ошибка при выходе:", error);
+                        // В реальном приложении здесь можно показать сообщение об ошибке пользователю
+                    } else {
+                        console.log("Выход выполнен успешно.");
+                        setCurrentPage('auth'); // Перенаправляем на страницу авторизации после выхода
+                    }
+                }
+            };
 
             const NavItem = ({ page, label, icon }) => (
                 <button
@@ -3050,6 +3077,10 @@
             );
 
             const renderPage = () => {
+                if (!isAuthenticated) {
+                    return <AuthPage />;
+                }
+
                 switch (currentPage) {
                     case 'dashboard':
                         return <DashboardPage />;
@@ -3079,25 +3110,33 @@
             return (
                 <div className="min-h-screen bg-gray-100 font-sans text-gray-900 flex flex-col md:flex-row">
                     {/* Sidebar / Navigation */}
-                    <nav className="bg-indigo-800 text-white p-4 md:p-6 flex flex-row md:flex-col items-center md:items-stretch justify-around md:justify-start shadow-xl md:shadow-none md:w-64 flex-shrink-0">
-                        <div className="text-3xl font-extrabold mb-0 md:mb-10 text-center hidden md:block">
-                            CRM 2025
-                        </div>
-                        <div className="flex flex-row md:flex-col space-x-4 md:space-x-0 md:space-y-4 w-full justify-center md:justify-start">
-                            <NavItem page="dashboard" label="Панель управления" icon="🏠" />
-                            <NavItem page="deals" label="Сделки" icon="🤝" />
-                            <NavItem page="funnel" label="Воронка" icon="📈" />
-                            <NavItem page="contacts" label="Контакты" icon="👤" />
-                            <NavItem page="tasks" label="Задачи" icon="✅" /> {/* New Nav Item */}
-                            <NavItem page="history" label="История" icon="📚" />
-                            <NavItem page="integrations" label="Интеграции" icon="🔌" />
-                            <NavItem page="analytics" label="Аналитика" icon="📊" />
-                        </div>
-                        <div className="mt-auto pt-6 text-sm text-indigo-300 hidden md:block">
-                            <p className="text-center">Ваш ID пользователя:</p>
-                            <p className="text-center break-all font-mono text-xs">{userId || 'Загрузка...'}</p>
-                        </div>
-                    </nav>
+                    {isAuthenticated && ( // Only show navigation if authenticated
+                        <nav className="bg-indigo-800 text-white p-4 md:p-6 flex flex-row md:flex-col items-center md:items-stretch justify-around md:justify-start shadow-xl md:shadow-none md:w-64 flex-shrink-0">
+                            <div className="text-3xl font-extrabold mb-0 md:mb-10 text-center hidden md:block">
+                                CRM 2025
+                            </div>
+                            <div className="flex flex-row md:flex-col space-x-4 md:space-x-0 md:space-y-4 w-full justify-center md:justify-start">
+                                <NavItem page="dashboard" label="Панель управления" icon="🏠" />
+                                <NavItem page="deals" label="Сделки" icon="🤝" />
+                                <NavItem page="funnel" label="Воронка" icon="📈" />
+                                <NavItem page="contacts" label="Контакты" icon="👤" />
+                                <NavItem page="tasks" label="Задачи" icon="✅" /> {/* New Nav Item */}
+                                <NavItem page="history" label="История" icon="📚" />
+                                <NavItem page="integrations" label="Интеграции" icon="🔌" />
+                                <NavItem page="analytics" label="Аналитика" icon="📊" />
+                            </div>
+                            <div className="mt-auto pt-6 text-sm text-indigo-300 hidden md:block">
+                                <p className="text-center">Ваш ID пользователя:</p>
+                                <p className="text-center break-all font-mono text-xs">{userId || 'Загрузка...'}</p>
+                                <button
+                                    onClick={handleLogout}
+                                    className="w-full mt-4 px-4 py-2 bg-indigo-700 text-white rounded-lg hover:bg-indigo-600 transition duration-150"
+                                >
+                                    Выйти
+                                </button>
+                            </div>
+                        </nav>
+                    )}
 
                     {/* Main Content Area */}
                     <main className="flex-grow p-4 md:p-8">

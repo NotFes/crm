@@ -61,7 +61,8 @@
             const [userId, setUserId] = useState(null);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
-            const [isAuthenticated, setIsAuthenticated] = useState(false); // New state for authentication status
+            // isAuthenticated теперь определяется наличием userId
+            const isAuthenticated = !!userId; 
 
             // Функция для инициализации Supabase клиента
             const initializeSupabaseClient = useCallback(async () => {
@@ -90,47 +91,18 @@
                     setSupabase(supabaseClient);
                     console.log("Supabase: Клиент создан.");
 
-                    // Проверяем текущую сессию
-                    console.log("Supabase: Проверка текущей сессии...");
-                    const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-                    if (sessionError) {
-                        console.error("Supabase: Ошибка при получении сессии:", sessionError);
-                        setError("Ошибка при получении сессии Supabase: " + sessionError.message);
-                        setLoading(false);
-                        return;
-                    }
-
-                    if (session) {
-                        setUserId(session.user.id);
-                        setIsAuthenticated(true);
-                        console.log("Supabase: Пользователь вошел в систему с ID:", session.user.id);
+                    // Загружаем userId из localStorage при инициализации
+                    const storedUserId = localStorage.getItem('crm_user_id');
+                    if (storedUserId) {
+                        setUserId(storedUserId);
+                        console.log("Supabase: Пользователь найден в localStorage с ID:", storedUserId);
                     } else {
-                        setUserId(null);
-                        setIsAuthenticated(false);
-                        console.log("Supabase: Сессия не найдена, требуется авторизация.");
+                        console.log("Supabase: Пользователь не найден в localStorage.");
                     }
-
-                    // Слушатель изменений состояния аутентификации
-                    const { data: authListener } = supabaseClient.auth.onAuthStateChange((_event, session) => {
-                        if (session) {
-                            setUserId(session.user.id);
-                            setIsAuthenticated(true);
-                            console.log("Supabase: Состояние аутентификации изменилось, новый ID пользователя:", session.user.id);
-                        } else {
-                            setUserId(null);
-                            setIsAuthenticated(false);
-                            console.log("Supabase: Пользователь вышел из системы.");
-                        }
-                    });
-
+                    
                     setLoading(false);
                     console.log("Supabase: Инициализация завершена.");
 
-                    // Очистка подписки при размонтировании компонента
-                    return () => {
-                        authListener?.subscription.unsubscribe();
-                        console.log("Supabase: Отписка от слушателя аутентификации.");
-                    };
                 } catch (err) {
                     console.error("Ошибка инициализации Supabase (catch блок):", err);
                     setError("Не удалось инициализировать Supabase: " + err.message);
@@ -151,6 +123,16 @@
                 loadSupabaseAndInitializeInternal();
             }, [initializeSupabaseClient]);
 
+            // Функция для установки userId и сохранения его в localStorage
+            const setAuthUser = (id) => {
+                setUserId(id);
+                if (id) {
+                    localStorage.setItem('crm_user_id', id);
+                } else {
+                    localStorage.removeItem('crm_user_id');
+                }
+            };
+
             if (loading) {
                 return (
                     <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -168,7 +150,7 @@
             }
 
             return (
-                <AppContext.Provider value={{ supabase, userId, isAuthenticated, setIsAuthenticated }}>
+                <AppContext.Provider value={{ supabase, userId, isAuthenticated, setAuthUser }}>
                     {children}
                 </AppContext.Provider>
             );
@@ -254,7 +236,7 @@
 
         // --- Auth Page ---
         const AuthPage = () => {
-            const { supabase, setIsAuthenticated } = useContext(AppContext);
+            const { supabase, setAuthUser } = useContext(AppContext);
             const [isRegister, setIsRegister] = useState(false);
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
@@ -271,25 +253,48 @@
 
                 try {
                     if (isRegister) {
-                        const { data, error } = await supabase.auth.signUp({
-                            email,
-                            password,
-                            options: {
-                                data: { full_name: fullName } // Pass full_name to auth.users metadata
-                            }
-                        });
+                        // Регистрация нового пользователя в public.users
+                        // ВНИМАНИЕ: В этом примере пароль отправляется в открытом виде.
+                        // В реальном приложении НЕОБХОДИМО хешировать пароль на стороне сервера (например,
+                        // используя Supabase Edge Functions или PostgreSQL функцию с pgcrypto)
+                        // перед сохранением в базу данных.
+                        const { data, error } = await supabase.from('users').insert({
+                            email: email,
+                            password_hash: password, // Здесь должен быть хешированный пароль!
+                            full_name: fullName
+                        }).select('id').single(); // Запрашиваем ID нового пользователя
+
                         if (error) throw error;
-                        setAuthMessage('Регистрация успешна! Проверьте свою почту для подтверждения.');
-                        // Optionally sign in directly after successful registration if email confirmation is not required
-                        // await supabase.auth.signInWithPassword({ email, password });
-                        // setIsAuthenticated(true);
+
+                        setAuthMessage('Регистрация успешна! Теперь вы можете войти.');
+                        // После регистрации не входим автоматически, пользователь должен войти вручную
+                        setIsRegister(false); // Переключаем на форму входа
+                        setEmail('');
+                        setPassword('');
+                        setFullName('');
+
                     } else {
-                        const { data, error } = await supabase.auth.signInWithPassword({
-                            email,
-                            password,
-                        });
-                        if (error) throw error;
-                        setIsAuthenticated(true);
+                        // Вход пользователя через public.users
+                        // ВНИМАНИЕ: Сравнение паролей на клиенте или отправка в открытом виде небезопасны.
+                        // В реальном приложении НЕОБХОДИМО отправлять пароль на сервер для сравнения с хешем.
+                        const { data, error } = await supabase
+                            .from('users')
+                            .select('id, password_hash')
+                            .eq('email', email)
+                            .single();
+
+                        if (error || !data) {
+                            throw new Error('Неверный email или пароль.');
+                        }
+
+                        // ВНИМАНИЕ: Это крайне небезопасно! В реальном приложении хеш пароля
+                        // должен быть сгенерирован на сервере, и сравнение должно происходить там же.
+                        // Здесь мы просто сравниваем введенный пароль с тем, что в базе.
+                        if (data.password_hash !== password) {
+                            throw new Error('Неверный email или пароль.');
+                        }
+
+                        setAuthUser(data.id); // Устанавливаем userId в контекст и localStorage
                         setAuthMessage('Вход выполнен успешно!');
                     }
                 } catch (error) {
@@ -306,6 +311,17 @@
                         <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
                             {isRegister ? 'Регистрация' : 'Вход'}
                         </h2>
+                        {/* Предупреждение о безопасности */}
+                        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4" role="alert">
+                            <p className="font-bold">ВНИМАНИЕ: Проблема безопасности!</p>
+                            <p className="text-sm">
+                                Текущая реализация отправляет пароли в открытом виде в базу данных.
+                                В продакшене это КРАЙНЕ небезопасно. Используйте хеширование паролей на стороне сервера
+                                (например, Supabase Edge Functions с bcrypt или PostgreSQL функции с pgcrypto)
+                                и безопасное управление сессиями.
+                            </p>
+                        </div>
+
                         <form onSubmit={handleAuth} className="space-y-4">
                             {isRegister && (
                                 <InputField
@@ -953,7 +969,10 @@
                         { event: '*', schema: 'public', table: 'contacts' },
                         payload => {
                             console.log("Real-time update for contacts:", payload);
-                            supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
+                            // Используем userId для фильтрации данных, если RLS не настроен
+                            // или если RLS настроен на основе user_id в таблице контактов.
+                            // Если RLS настроен на auth.uid(), то этот фильтр не нужен.
+                            supabase.from('contacts').select('*').eq('user_id', userId) 
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching contacts:", error);
                                     else setContacts(data);
@@ -963,7 +982,7 @@
                     .subscribe();
 
                 // Initial fetch for contacts
-                supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
+                supabase.from('contacts').select('*').eq('user_id', userId)
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial contacts:", error);
                         else setContacts(data);
@@ -1131,14 +1150,14 @@
                     // Fetch deals
                     const { data: dealsData, error: dealsError } = await supabase
                         .from('deals')
-                        .select('id, name'); // RLS allows all authenticated users to read all deals
+                        .select('id, name').eq('owner_id', userId); // Фильтруем по owner_id
                     if (dealsError) console.error("Error fetching deals for history:", dealsError);
                     else setDeals(dealsData);
 
                     // Fetch contacts
                     const { data: contactsData, error: contactsError } = await supabase
                         .from('contacts')
-                        .select('id, first_name, last_name'); // RLS allows all authenticated users to read all contacts
+                        .select('id, first_name, last_name').eq('user_id', userId); // Фильтруем по user_id
                     if (contactsError) console.error("Error fetching contacts for history:", contactsError);
                     else setContacts(contactsData);
                 };
@@ -1152,7 +1171,7 @@
                         { event: '*', schema: 'public', table: 'interactions' },
                         payload => {
                             console.log("Real-time update for interactions:", payload);
-                            supabase.from('interactions').select('*').order('interaction_date', { ascending: false }) // RLS allows all authenticated users to read all interactions
+                            supabase.from('interactions').select('*').eq('user_id', userId).order('interaction_date', { ascending: false }) // Фильтруем по user_id
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching interactions:", error);
                                     else setInteractions(data);
@@ -1162,7 +1181,7 @@
                     .subscribe();
 
                 // Initial fetch for interactions
-                supabase.from('interactions').select('*').order('interaction_date', { ascending: false }) // RLS allows all authenticated users to read all interactions
+                supabase.from('interactions').select('*').eq('user_id', userId).order('interaction_date', { ascending: false }) // Фильтруем по user_id
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial interactions:", error);
                         else setInteractions(data);
@@ -1234,7 +1253,7 @@
                         { event: '*', schema: 'public', table: 'integrations' },
                         payload => {
                             console.log("Real-time update for integrations:", payload);
-                            supabase.from('integrations').select('*') // RLS allows all authenticated users to read all integrations
+                            supabase.from('integrations').select('*').eq('user_id', userId) // Фильтруем по user_id
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching integrations:", error);
                                     else setIntegrations(data);
@@ -1244,7 +1263,7 @@
                     .subscribe();
 
                 // Initial fetch for integrations
-                supabase.from('integrations').select('*') // RLS allows all authenticated users to read all integrations
+                supabase.from('integrations').select('*').eq('user_id', userId) // Фильтруем по user_id
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial integrations:", error);
                         else setIntegrations(data);
@@ -1471,21 +1490,21 @@
                         // Fetch deals
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
-                            .select('*'); // RLS allows all authenticated users to read all deals
+                            .select('*').eq('owner_id', userId); // Фильтруем по owner_id
                         if (dealsError) console.error("Error fetching deals for dashboard:", dealsError);
                         else setDeals(dealsData);
 
                         // Fetch contacts
                         const { data: contactsData, error: contactsError } = await supabase
                             .from('contacts')
-                            .select('*'); // RLS allows all authenticated users to read all contacts
+                            .select('*').eq('user_id', userId); // Фильтруем по user_id
                         if (contactsError) console.error("Error fetching contacts for dashboard:", contactsError);
                         else setContacts(contactsData);
 
                         // Fetch interactions
                         const { data: interactionsData, error: interactionsError } = await supabase
                             .from('interactions')
-                            .select('*'); // RLS allows all authenticated users to read all interactions
+                            .select('*').eq('user_id', userId); // Фильтруем по user_id
                         if (interactionsError) console.error("Error fetching interactions for dashboard:", interactionsError);
                         else setInteractions(interactionsData);
 
@@ -1602,7 +1621,7 @@
                         { event: '*', schema: 'public', table: 'contacts' },
                         payload => {
                             console.log("Real-time update for contacts on FunnelPage:", payload);
-                            supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
+                            supabase.from('contacts').select('*').eq('user_id', userId) // Фильтруем по user_id
                                 .then(({ data, error }) => {
                                     if (error) console.error("Error re-fetching contacts:", error);
                                     else setContacts(data);
@@ -1612,7 +1631,7 @@
                     .subscribe();
 
                 // Initial fetch for contacts
-                supabase.from('contacts').select('*') // RLS allows all authenticated users to read all contacts
+                supabase.from('contacts').select('*').eq('user_id', userId) // Фильтруем по user_id
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial contacts:", error);
                         else setContacts(data);
@@ -1651,7 +1670,7 @@
                             console.log("Real-time update for deals on FunnelPage:", payload);
                             const { data: fetchedDeals, error } = await supabase
                                 .from('deals')
-                                .select('*'); // RLS allows all authenticated users to read all deals
+                                .select('*').eq('owner_id', userId); // Фильтруем по owner_id
 
                             if (error) {
                                 console.error("Error re-fetching deals for FunnelPage:", error);
@@ -1681,7 +1700,7 @@
                     .subscribe();
 
                 // Initial fetch for deals
-                supabase.from('deals').select('*') // RLS allows all authenticated users to read all deals
+                supabase.from('deals').select('*').eq('owner_id', userId) // Фильтруем по owner_id
                     .then(async ({ data: fetchedDeals, error }) => {
                         if (error) {
                             console.error("Error fetching initial deals for FunnelPage:", error);
@@ -1920,21 +1939,21 @@
                         // Fetch deals
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
-                            .select('*'); // RLS allows all authenticated users to read all deals
+                            .select('*').eq('owner_id', userId); // Фильтруем по owner_id
                         if (dealsError) console.error("Error fetching deals for dashboard:", dealsError);
                         else setDeals(dealsData);
 
                         // Fetch contacts
                         const { data: contactsData, error: contactsError } = await supabase
                             .from('contacts')
-                            .select('*'); // RLS allows all authenticated users to read all contacts
+                            .select('*').eq('user_id', userId); // Фильтруем по user_id
                         if (contactsError) console.error("Error fetching contacts for dashboard:", contactsError);
                         else setContacts(contactsData);
 
                         // Fetch interactions
                         const { data: interactionsData, error: interactionsError } = await supabase
                             .from('interactions')
-                            .select('*'); // RLS allows all authenticated users to read all interactions
+                            .select('*').eq('user_id', userId); // Фильтруем по user_id
                         if (interactionsError) console.error("Error fetching interactions for dashboard:", interactionsError);
                         else setInteractions(interactionsData);
 
@@ -2110,7 +2129,7 @@
                         // Fetch deals linked to this contact
                         const { data: dealsData, error: dealsError } = await supabase
                             .from('deals')
-                            .select('*'); // RLS allows all authenticated users to read all deals
+                            .select('*').eq('owner_id', userId); // Фильтруем по owner_id
 
                         if (dealsError) {
                             console.error("Error fetching linked deals:", dealsError);
@@ -2126,7 +2145,7 @@
                         // Fetch tasks linked to this contact
                         const { data: tasksData, error: tasksError } = await supabase
                             .from('tasks')
-                            .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
+                            .select('*, users(id, email)').eq('user_id', userId); // Фильтруем по user_id и join с users
                         
                         if (tasksError) {
                             console.error("Error fetching linked tasks:", tasksError);
@@ -2146,7 +2165,7 @@
 
                         // Fetch users for task assignee dropdown
                         const { data: usersData, error: usersError } = await supabase
-                            .from('user')
+                            .from('users') // Изменено с 'user' на 'users'
                             .select('id, email');
                         if (usersError) console.error("Error fetching users for task form:", usersError);
                         else setUsers(usersData);
@@ -2223,7 +2242,7 @@
                     // Re-fetch tasks to update the list
                     const { data: tasksData, error: tasksError } = await supabase
                         .from('tasks')
-                        .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
+                        .select('*, users(id, email)').eq('user_id', userId); // Фильтруем по user_id и join с users
                     if (tasksError) console.error("Error re-fetching tasks after save:", tasksError);
                     else {
                         const filteredTasks = tasksData.filter(task => task.contact_id === contactId);
@@ -2321,7 +2340,7 @@
                                         <p className="text-gray-500 text-xs mt-1">
                                             Срок: {task.due_date ? new Date(task.due_date).toLocaleDateString() : 'N/A'} |
                                             Статус: <span className="font-medium capitalize">{task.status}</span> |
-                                            Ответственный: {task.user ? task.user.email : 'N/A'}
+                                            Ответственный: {task.users ? task.users.email : 'N/A'}
                                         </p>
                                     </div>
                                 ))}
@@ -2374,7 +2393,8 @@
                             .from('deals')
                             .select('*')
                             .eq('id', dealId)
-                            .single(); // RLS allows all authenticated users to read all deals
+                            .eq('owner_id', userId) // Фильтруем по owner_id
+                            .single();
 
                         if (dealError) {
                             console.error("Error fetching deal details:", dealError);
@@ -2423,7 +2443,7 @@
                         // Fetch tasks linked to this deal
                         const { data: tasksData, error: tasksError } = await supabase
                             .from('tasks')
-                            .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
+                            .select('*, users(id, email)').eq('user_id', userId); // Фильтруем по user_id и join с users
 
                         if (tasksError) {
                             console.error("Error fetching linked tasks:", tasksError);
@@ -2443,7 +2463,7 @@
 
                         // Fetch users for task assignee dropdown
                         const { data: usersData, error: usersError } = await supabase
-                            .from('user')
+                            .from('users') // Изменено с 'user' на 'users'
                             .select('id, email');
                         if (usersError) console.error("Error fetching users for task form:", usersError);
                         else setUsers(usersData);
@@ -2520,7 +2540,7 @@
                     // Re-fetch tasks to update the list
                     const { data: tasksData, error: tasksError } = await supabase
                         .from('tasks')
-                        .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
+                        .select('*, users(id, email)').eq('user_id', userId); // Фильтруем по user_id и join с users
                     if (tasksError) console.error("Error re-fetching tasks after save:", tasksError);
                     else {
                         const filteredTasks = tasksData.filter(task => task.deal_id === dealId);
@@ -2627,7 +2647,7 @@
                                         <p className="text-gray-500 text-xs mt-1">
                                             Срок: {task.due_date ? new Date(task.due_date).toLocaleDateString() : 'N/A'} |
                                             Статус: <span className="font-medium capitalize">{task.status}</span> |
-                                            Ответственный: {task.user ? task.user.email : 'N/A'}
+                                            Ответственный: {task.users ? task.users.email : 'N/A'}
                                         </p>
                                     </div>
                                 ))}
@@ -2812,7 +2832,7 @@
                 const fetchRelatedData = async () => {
                     // Fetch all users for assignee display
                     const { data: usersData, error: usersError } = await supabase
-                        .from('user')
+                        .from('users') // Изменено с 'user' на 'users'
                         .select('id, email');
                     if (usersError) console.error("Error fetching users for tasks page:", usersError);
                     else setUsers(usersData);
@@ -2820,14 +2840,14 @@
                     // Fetch all deals for linking display
                     const { data: dealsData, error: dealsError } = await supabase
                         .from('deals')
-                        .select('id, name'); // RLS allows all authenticated users to read all deals
+                        .select('id, name').eq('owner_id', userId); // Фильтруем по owner_id
                     if (dealsError) console.error("Error fetching deals for tasks page:", dealsError);
                     else setDeals(dealsData);
 
                     // Fetch all contacts for linking display
                     const { data: contactsData, error: contactsError } = await supabase
                         .from('contacts')
-                        .select('id, first_name, last_name'); // RLS allows all authenticated users to read all contacts
+                        .select('id, first_name, last_name').eq('user_id', userId); // Фильтруем по user_id
                     if (contactsError) console.error("Error fetching contacts for tasks page:", contactsError);
                     else setContacts(contactsData);
                 };
@@ -2843,7 +2863,7 @@
                             console.log("Real-time update for tasks:", payload);
                             const { data: fetchedTasks, error } = await supabase
                                 .from('tasks')
-                                .select('*, user(id, email)'); // RLS allows all authenticated users to read all tasks
+                                .select('*, users(id, email)').eq('user_id', userId); // Фильтруем по user_id и join с users
 
                             if (error) console.error("Error re-fetching tasks:", error);
                             else setTasks(fetchedTasks);
@@ -2853,7 +2873,8 @@
 
                 // Initial fetch for tasks
                 supabase.from('tasks')
-                    .select('*, user(id, email)') // Join with user table for assignee email
+                    .select('*, users(id, email)') // Join with user table for assignee email
+                    .eq('user_id', userId) // Фильтруем по user_id
                     .order('due_date', { ascending: true, nullsFirst: false })
                     .then(({ data, error }) => {
                         if (error) console.error("Error fetching initial tasks:", error);
@@ -3046,19 +3067,13 @@
             const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard', 'deals', 'contacts', 'history', 'integrations', 'funnel', 'analytics', 'contactDetails', 'dealDetails', 'tasks'
             const [selectedContactId, setSelectedContactId] = useState(null); // State for ContactDetailsPage
             const [selectedDealId, setSelectedDealId] = useState(null); // State for DealDetailsPage
-            const { userId, isAuthenticated, supabase } = useContext(AppContext); // Get userId and isAuthenticated from AppContext
+            const { userId, isAuthenticated, supabase, setAuthUser } = useContext(AppContext); // Get userId, isAuthenticated, setAuthUser from AppContext
 
             const handleLogout = async () => {
-                if (supabase) {
-                    const { error } = await supabase.auth.signOut();
-                    if (error) {
-                        console.error("Ошибка при выходе:", error);
-                        // В реальном приложении здесь можно показать сообщение об ошибке пользователю
-                    } else {
-                        console.log("Выход выполнен успешно.");
-                        setCurrentPage('auth'); // Перенаправляем на страницу авторизации после выхода
-                    }
-                }
+                // При выходе просто очищаем userId из контекста и localStorage
+                setAuthUser(null);
+                console.log("Выход выполнен успешно.");
+                setCurrentPage('auth'); // Перенаправляем на страницу авторизации после выхода
             };
 
             const NavItem = ({ page, label, icon }) => (
@@ -3127,7 +3142,7 @@
                             </div>
                             <div className="mt-auto pt-6 text-sm text-indigo-300 hidden md:block">
                                 <p className="text-center">Ваш ID пользователя:</p>
-                                <p className="text-center break-all font-mono text-xs">{userId || 'Загрузка...'}</p>
+                                <p className="text-center break-all font-mono text-xs">{userId || 'Не авторизован'}</p>
                                 <button
                                     onClick={handleLogout}
                                     className="w-full mt-4 px-4 py-2 bg-indigo-700 text-white rounded-lg hover:bg-indigo-600 transition duration-150"

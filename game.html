@@ -327,8 +327,8 @@
 
         // UI elements
         const playerIDEl = document.getElementById('playerID');
-        const playerHealthEl = document.getElementById('playerHealth');
-        const playerAttackEl = document.getElementById('playerAttack');
+        const playerHealthEl = document.getElementById('playerHealth'); // Corrected assignment
+        const playerAttackEl = document.getElementById('playerAttack'); // Corrected assignment
         const playerDefenseEl = document.getElementById('playerDefense');
         const playerXPEl = document.getElementById('playerXP');
         const playerLevelEl = document.getElementById('playerLevel');
@@ -965,12 +965,13 @@
                 .channel('players_changes')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
                     console.log('Player change received!', payload);
+                    console.log('Payload for player change:', payload.new); // Добавлено логирование payload.new
                     if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                         const changedPlayer = payload.new;
                         // Если это наш собственный игрок, обновить его данные, но не добавлять в otherPlayers
                         if (changedPlayer.id === player.id) {
                             player.x = changedPlayer.x;
-                            player.y = changedChangedPlayer.y;
+                            player.y = changedPlayer.y; // Исправлена опечатка здесь
                             player.chunkX = changedPlayer.chunkX;
                             player.chunkY = changedPlayer.chunkY;
                             player.health = changedPlayer.health;
@@ -993,6 +994,7 @@
                         const deletedPlayerId = payload.old.id;
                         otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId); // Удалить удаленного игрока
                     }
+                    console.log('Current otherPlayers array:', otherPlayers); // Добавлено логирование otherPlayers
                     drawGame();
                     updateUI();
                 })

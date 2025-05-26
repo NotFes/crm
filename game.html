@@ -173,7 +173,9 @@
             z-index: 100;
             border-radius: 16px; /* Соответствует контейнеру */
             text-shadow: 0 0 10px rgba(255, 255, 255, 0.5); /* Тень для текста загрузки */
+            pointer-events: auto; /* Allow interaction with the overlay */
         }
+        /* No .hidden class needed anymore, direct style manipulation */
     </style>
 </head>
 <body>
@@ -224,25 +226,31 @@
 
     <script type="module">
         // Supabase imports
-        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.50.0/+esm';
 
-        // Supabase configuration
-        const SUPABASE_URL = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
+        // Supabase configuration - Use global variables if provided by the environment, otherwise use hardcoded values
+        const SUPABASE_URL = typeof __supabase_url !== 'undefined' ? __supabase_url : 'https://kbjlqmzeclrtowtygbvu.supabase.co';
+        const SUPABASE_ANON_KEY = typeof __supabase_anon_key !== 'undefined' ? __supabase_anon_key : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
 
-        let supabase;
-        let userId;
-        let gameReady = false;
+        let supabase = null; // Initialize as null
+        let userId = null; // Initialize as null
+        let gameReady = false; // Indicates if the local game is ready to play
 
         // Game configuration
         const TILE_SIZE = 40;
         const MAP_WIDTH = 15;
         const MAP_HEIGHT = 15;
 
+        // Global constants for the central hub
+        const HUB_WIDTH = 7;
+        const HUB_HEIGHT = 7;
+        const HUB_X = Math.floor((MAP_WIDTH - HUB_WIDTH) / 2);
+        const HUB_Y = Math.floor((MAP_HEIGHT - HUB_HEIGHT) / 2);
+
         // Game state
         let player = {
-            id: '',
-            name: 'Игрок',
+            id: crypto.randomUUID(), // Assign a random ID by default for local play
+            name: 'Игрок', // Will be updated to 'Игрок <ID>' or 'Локальный Игрок <ID>'
             x: 0,
             y: 0,
             chunkX: 0, // Координата чанка по X
@@ -341,84 +349,64 @@
         const otherPlayersListEl = document.getElementById('otherPlayersList');
 
         /**
-         * Initializes Supabase and authenticates the user (anonymously).
+         * Attempts to initialize Supabase client and authenticate the user (anonymously).
+         * Sets `supabase` and `userId` if successful. Throws error on failure.
          */
-        async function initializeSupabase() {
-            loadingOverlay.style.display = 'flex'; // Показать оверлей загрузки
-            try {
-                supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                console.log("Supabase client initialized.");
-                console.log("URL:", SUPABASE_URL);
-                console.log("Anon Key (first 10 chars):", SUPABASE_ANON_KEY.substring(0, 10) + "...");
+        async function initializeSupabaseConnection() {
+            console.log("Attempting to create Supabase client...");
+            supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log("Supabase client created.");
+            
+            console.log("Attempting to get Supabase session or sign in anonymously...");
+            const { data: { session }, error: getSessionError } = await supabase.auth.getSession();
 
-                const authPromise = new Promise(async (resolve, reject) => {
-                    supabase.auth.onAuthStateChange((event, session) => {
-                        console.log("Auth state change event:", event);
-                        if (session && session.user) {
-                            resolve(session.user);
-                        } else if (event === 'SIGNED_OUT') {
-                            console.log("User signed out, attempting anonymous sign-in if no session.");
-                        }
-                    });
-
-                    const { data: { session }, error: getSessionError } = await supabase.auth.getSession();
-
-                    if (getSessionError) {
-                        console.error("DEBUG: Full getSessionError object:", getSessionError); // Детальное логирование ошибки
-                        console.error("Ошибка получения сессии:", getSessionError);
-                        logMessage("Ошибка получения сессии. Попытка анонимного входа...");
-                        const { error: signInError } = await supabase.auth.signInAnonymously();
-                        if (signInError) {
-                            console.error("DEBUG: Full signInError object:", signInError); // Детальное логирование ошибки
-                            console.error("Критическая ошибка анонимного входа:", signInError);
-                            logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
-                            reject(signInError);
-                        } else {
-                            console.log("Анонимный вход успешно инициирован.");
-                        }
-                    } else if (!session) {
-                        console.log("Нет активной сессии. Попытка анонимного входа...");
-                        const { error: signInError } = await supabase.auth.signInAnonymously();
-                        if (signInError) {
-                            console.error("DEBUG: Full signInError object:", signInError); // Детальное логирование ошибки
-                            console.error("Критическая ошибка анонимного входа:", signInError);
-                            logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
-                            reject(signInError);
-                        } else {
-                            console.log("Анонимный вход успешно инициирован.");
-                        }
-                    } else {
-                        console.log("Существует активная сессия, пользователь:", session.user.id);
-                        resolve(session.user);
-                    }
-                });
-
-                const user = await authPromise;
-                userId = user.id;
-                player.id = userId;
-                player.name = `Игрок ${userId.substring(0, 6)}`;
-                playerIDEl.textContent = userId;
-                logMessage(`Вы вошли как: ${player.name}`);
-                gameReady = true;
-                console.log("Calling setupGame...");
-                await setupGame();
-
-            } catch (error) {
-                console.error("Критическая ошибка инициализации Supabase:", error);
-                logMessage("Критическая ошибка подключения к игре. Пожалуйста, попробуйте позже.");
-            } finally {
-                loadingOverlay.style.display = 'none'; // Скрыть оверлей загрузки
+            if (getSessionError) {
+                console.error("DEBUG: Full getSessionError object:", getSessionError);
+                console.error("Ошибка получения сессии:", getSessionError);
+                logMessage("Ошибка получения сессии. Попытка анонимного входа...");
+                const { error: signInError } = await supabase.auth.signInAnonymously();
+                if (signInError) {
+                    throw signInError; // Re-throw to be caught by the outer catch block
+                } else {
+                    console.log("Анонимный вход успешно инициирован.");
+                }
+            } else if (!session) {
+                console.log("Нет активной сессии. Попытка анонимного входа...");
+                const { error: signInError } = await supabase.auth.signInAnonymously();
+                if (signInError) {
+                    throw signInError; // Re-throw to be caught by the outer catch block
+                } else {
+                    console.log("Анонимный вход успешно инициирован.");
+                }
+            } else {
+                console.log("Существует активная сессия, пользователь:", session.user.id);
             }
+
+            // If we reached here, Supabase auth was successful
+            const user = (await supabase.auth.getUser()).data.user; // Get user after potential sign-in
+            userId = user.id;
+            player.id = userId; // Update player ID to Supabase ID
+            player.name = `Игрок ${userId.substring(0, 6)}`; // Update player name
+            playerIDEl.textContent = userId; // Update UI with Supabase ID
+            logMessage(`Вы вошли как: ${player.name}`);
+            console.log("Supabase connection and authentication successful.");
         }
 
         /**
-         * Sets up the game state and listeners after Supabase is ready.
+         * Sets up online-specific game features (loading/saving data, real-time listeners).
+         * This is called ONLY if Supabase connection is successful.
          */
-        async function setupGame() {
-            // 1. Load or initialize global game state (map and enemies)
+        async function setupOnlineGameFeatures() {
+            if (!supabase || !userId) {
+                console.warn("Supabase not available, skipping online game features setup.");
+                return;
+            }
+            console.log("Setting up online game features...");
+
+            // 1. Load or initialize global game state (map and enemies) from Supabase
             await loadOrCreateGameState();
 
-            // 2. Load or initialize player data
+            // 2. Load or initialize player data from Supabase
             const { data: existingPlayer, error: fetchPlayerError } = await supabase
                 .from('players')
                 .select('*')
@@ -426,34 +414,30 @@
                 .single();
 
             if (fetchPlayerError && fetchPlayerError.code !== 'PGRST116') {
-                console.error("Ошибка загрузки данных игрока:", fetchPlayerError);
-                logMessage("Ошибка загрузки вашего прогресса.");
+                console.error("Ошибка загрузки данных игрока из Supabase:", fetchPlayerError);
+                logMessage("Ошибка загрузки вашего прогресса из Supabase.");
             } else if (existingPlayer) {
                 player.x = existingPlayer.x;
                 player.y = existingPlayer.y;
-                player.chunkX = existingPlayer.chunkX || 0; // Загрузить chunkX, по умолчанию 0
-                player.chunkY = existingPlayer.chunkY || 0; // Загрузить chunkY, по умолчанию 0
+                player.chunkX = existingPlayer.chunkX || 0;
+                player.chunkY = existingPlayer.chunkY || 0;
                 player.health = existingPlayer.health;
                 player.maxhealth = existingPlayer.maxhealth;
                 player.attack = existingPlayer.attack;
                 player.defense = existingPlayer.defense;
                 player.xp = existingPlayer.xp;
                 player.level = existingPlayer.level;
-                logMessage("Ваш прогресс загружен.");
+                logMessage("Ваш прогресс загружен из Supabase.");
             } else {
-                await updatePlayerPositionInSupabase(); // Вставить начальное состояние игрока
-                logMessage("Новый профиль игрока создан.");
+                await updatePlayerPositionInSupabase(); // Insert initial player state
+                logMessage("Новый профиль игрока создан в Supabase.");
             }
 
             // 3. Set up real-time listeners
-            listenForOtherPlayers();
-            listenForGameStateChanges(); // Слушать изменения состояния карты/врагов
-
-            // 4. Initial draw and UI update
-            drawGame();
-            updateUI();
-            document.addEventListener('keydown', handleKeyDown);
-            logMessage('Используйте клавиши WASD или стрелки для перемещения.');
+            await listenForOtherPlayers();
+            listenForGameStateChanges();
+            logMessage("Онлайн-функции активированы.");
+            updateUI(); // Final UI update after online features are set up
         }
 
         /**
@@ -468,7 +452,15 @@
          * Loads global game state (map and enemies) from Supabase, or creates it if not found.
          */
         async function loadOrCreateGameState() {
-            console.log(`Attempting to load game state for chunk ${getCurrentWorldId()}...`);
+            // Only attempt to load/save from Supabase if it's initialized
+            if (!supabase || !userId) {
+                console.warn("Supabase not available, loading game state locally.");
+                initializeMap(); // Ensure map is initialized even in local mode
+                spawnEnemies(); // Ensure enemies are spawned even in local mode
+                return;
+            }
+
+            console.log(`Attempting to load game state for chunk ${getCurrentWorldId()} from Supabase...`);
             const { data, error } = await supabase
                 .from('game_state')
                 .select('*')
@@ -508,20 +500,68 @@
                 }
             }
             generateDungeon(); // Вызвать новую функцию генерации подземелья
-            ensureExits(); // Гарантировать выходы на границах чанка
+            // ensureExits() is no longer needed as the hub corridors guarantee exits
             console.log("Map initialized locally with dungeon:", map);
         }
 
-        // --- New Dungeon Generation Logic ---
+        // --- Dungeon Generation Logic with Central Hub ---
         function generateDungeon() {
+            // 1. Initialize map with all walls (already done in initializeMap, but good for clarity)
+            for (let y = 0; y < MAP_HEIGHT; y++) {
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    map[y][x] = 'wall';
+                }
+            }
+
             const rooms = [];
-            const NUM_ROOMS = Math.floor(Math.random() * 3) + 3; // 3-5 комнат
+
+            // 2. Define and carve out the central hub
+            const hub = {
+                x: HUB_X,
+                y: HUB_Y,
+                width: HUB_WIDTH,
+                height: HUB_HEIGHT
+            };
+            rooms.push(hub); // Add hub to rooms list for overlap checks
+
+            for (let y = hub.y; y < hub.y + hub.height; y++) {
+                for (let x = hub.x; x < hub.x + hub.width; x++) {
+                    map[y][x] = 'floor';
+                }
+            }
+
+            // 3. Carve out four main corridors from the hub to the edges
+            const hubCenterX = Math.floor(hub.x + hub.width / 2);
+            const hubCenterY = Math.floor(hub.y + hub.height / 2);
+
+            // North corridor
+            for (let y = 0; y < hub.y + 1; y++) {
+                map[y][hubCenterX] = 'floor';
+            }
+            // South corridor
+            for (let y = hub.y + hub.height - 1; y < MAP_HEIGHT; y++) {
+                map[y][hubCenterX] = 'floor';
+            }
+            // West corridor
+            for (let x = 0; x < hub.x + 1; x++) {
+                map[hubCenterY][x] = 'floor';
+            }
+            // East corridor
+            for (let x = hub.x + hub.width - 1; x < MAP_WIDTH; x++) {
+                map[hubCenterY][x] = 'floor';
+            }
+
+            // 4. Set player spawn to the center of the hub
+            player.x = hubCenterX;
+            player.y = hubCenterY;
+
+            // 5. Generate additional random rooms (avoiding the hub and main corridors)
+            const NUM_ADDITIONAL_ROOMS = Math.floor(Math.random() * 2) + 2; // 2-3 additional rooms
             const MIN_ROOM_SIZE = 3;
             const MAX_ROOM_SIZE = 7;
 
-            // Генерация комнат
-            for (let i = 0; i < NUM_ROOMS; i++) {
-                let room;
+            for (let i = 0; i < NUM_ADDITIONAL_ROOMS; i++) {
+                let newRoom;
                 let overlaps;
                 let attempts = 0;
                 const maxAttempts = 100;
@@ -530,18 +570,19 @@
                     overlaps = false;
                     const rw = Math.floor(Math.random() * (MAX_ROOM_SIZE - MIN_ROOM_SIZE + 1)) + MIN_ROOM_SIZE;
                     const rh = Math.floor(Math.random() * (MAX_ROOM_SIZE - MIN_ROOM_SIZE + 1)) + MIN_ROOM_SIZE;
-                    const rx = Math.floor(Math.random() * (MAP_WIDTH - rw - 1)) + 1; // +1, чтобы избежать краев
-                    const ry = Math.floor(Math.random() * (MAP_HEIGHT - rh - 1)) + 1; // +1, чтобы избежать краев
+                    const rx = Math.floor(Math.random() * (MAP_WIDTH - rw));
+                    const ry = Math.floor(Math.random() * (MAP_HEIGHT - rh));
 
-                    room = { x: rx, y: ry, width: rw, height: rh };
+                    newRoom = { x: rx, y: ry, width: rw, height: rh };
 
-                    // Проверка на пересечения с существующими комнатами
+                    // Check for overlaps with all existing rooms (including the hub)
                     for (const existingRoom of rooms) {
+                        // Add a small buffer to avoid rooms being right next to each other
                         if (
-                            room.x < existingRoom.x + existingRoom.width + 1 && // +1 для небольшого буфера
-                            room.x + room.width + 1 > existingRoom.x &&
-                            room.y < existingRoom.y + existingRoom.height + 1 &&
-                            room.y + room.height + 1 > existingRoom.y
+                            newRoom.x < existingRoom.x + existingRoom.width + 1 &&
+                            newRoom.x + newRoom.width + 1 > existingRoom.x &&
+                            newRoom.y < existingRoom.y + existingRoom.height + 1 &&
+                            newRoom.y + newRoom.height + 1 > existingRoom.y
                         ) {
                             overlaps = true;
                             break;
@@ -549,16 +590,16 @@
                     }
                     attempts++;
                     if (attempts > maxAttempts) {
-                        console.warn("Could not place room after many attempts.");
+                        console.warn("Could not place additional room after many attempts.");
                         break;
                     }
                 } while (overlaps && attempts <= maxAttempts);
 
                 if (!overlaps) {
-                    rooms.push(room);
-                    // Выкопать комнату
-                    for (let y = room.y; y < room.y + room.height; y++) {
-                        for (let x = room.x; x < room.x + room.width; x++) {
+                    rooms.push(newRoom);
+                    // Carve out the new room
+                    for (let y = newRoom.y; y < newRoom.y + newRoom.height; y++) {
+                        for (let x = newRoom.x; x < newRoom.x + newRoom.width; x++) {
                             if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
                                 map[y][x] = 'floor';
                             }
@@ -567,140 +608,29 @@
                 }
             }
 
-            // Соединение комнат коридорами
-            for (let i = 0; i < rooms.length - 1; i++) {
-                const room1 = rooms[i];
-                const room2 = rooms[i + 1];
+            // 6. Connect all rooms (including the hub) with corridors
+            // Connect each additional room to the hub
+            for (let i = 1; i < rooms.length; i++) { // Start from 1 to skip the hub
+                const room = rooms[i];
+                const targetRoom = hub; // Connect to the hub
 
-                const center1 = { x: Math.floor(room1.x + room1.width / 2), y: Math.floor(room1.y + room1.height / 2) };
-                const center2 = { x: Math.floor(room2.x + room2.width / 2), y: Math.floor(room2.y + room2.height / 2) };
+                const center1 = { x: Math.floor(room.x + room.width / 2), y: Math.floor(room.y + room.height / 2) };
+                const center2 = { x: Math.floor(targetRoom.x + targetRoom.width / 2), y: Math.floor(targetRoom.y + targetRoom.height / 2) };
 
-                // Горизонтальный коридор
+                // Horizontal corridor
                 for (let x = Math.min(center1.x, center2.x); x <= Math.max(center1.x, center2.x); x++) {
                     if (x >= 0 && x < MAP_WIDTH && center1.y >= 0 && center1.y < MAP_HEIGHT) {
                         map[center1.y][x] = 'floor';
                     }
                 }
 
-                // Вертикальный коридор
+                // Vertical corridor
                 for (let y = Math.min(center1.y, center2.y); y <= Math.max(center1.y, center2.y); y++) {
                     if (center2.x >= 0 && center2.x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
                         map[y][center2.x] = 'floor';
                     }
                 }
             }
-
-            // Убедиться, что игрок появляется на плитке пола
-            let playerSpawned = false;
-            for (const room of rooms) {
-                if (room.width > 0 && room.height > 0) {
-                    player.x = Math.floor(room.x + room.width / 2);
-                    player.y = Math.floor(room.y + room.height / 2);
-                    playerSpawned = true;
-                    break;
-                }
-            }
-            if (!playerSpawned) {
-                // Запасной вариант, если комнаты не были успешно размещены
-                player.x = Math.floor(MAP_WIDTH / 2);
-                player.y = Math.floor(MAP_HEIGHT / 2);
-                map[player.y][player.x] = 'floor'; // Убедиться, что место появления игрока - пол
-            }
-        }
-
-        /**
-         * Ensures there is at least one exit (floor tile) on each of the four borders.
-         * Connects these exits to the dungeon interior.
-         */
-        function ensureExits() {
-            const borders = [
-                { edge: 'top', fixedCoord: 0, varyingCoord: 'x', range: MAP_WIDTH },
-                { edge: 'bottom', fixedCoord: MAP_HEIGHT - 1, varyingCoord: 'x', range: MAP_WIDTH },
-                { edge: 'left', fixedCoord: 0, varyingCoord: 'y', range: MAP_HEIGHT },
-                { edge: 'right', fixedCoord: MAP_WIDTH - 1, varyingCoord: 'y', range: MAP_HEIGHT }
-            ];
-
-            borders.forEach(border => {
-                let exitCreated = false;
-                let attempts = 0;
-                const maxAttempts = 50;
-
-                while (!exitCreated && attempts < maxAttempts) {
-                    const pos = Math.floor(Math.random() * border.range);
-                    let ex, ey;
-
-                    if (border.varyingCoord === 'x') {
-                        ex = pos;
-                        ey = border.fixedCoord;
-                    } else {
-                        ex = border.fixedCoord;
-                        ey = pos;
-                    }
-
-                    // Проверить, является ли уже пол
-                    if (map[ey][ex] === 'floor') {
-                        exitCreated = true;
-                        break;
-                    }
-
-                    // Попытаться превратить в пол и соединить с ближайшей комнатой/коридором
-                    map[ey][ex] = 'floor';
-                    logMessage(`Создан выход на ${border.edge} границе в (${ex}, ${ey}).`);
-
-                    // Простая попытка соединить с ближайшим полом внутри
-                    // (Можно улучшить с помощью более сложного алгоритма, но для начала достаточно)
-                    let connected = false;
-                    for (let y = 1; y < MAP_HEIGHT - 1; y++) {
-                        for (let x = 1; x < MAP_WIDTH - 1; x++) {
-                            if (map[y][x] === 'floor') {
-                                // Создать простой коридор к этой плитке пола
-                                if (border.varyingCoord === 'x') { // Горизонтальный коридор
-                                    for (let cy = Math.min(ey, y); cy <= Math.max(ey, y); cy++) {
-                                        if (cy >= 0 && cy < MAP_HEIGHT && ex >= 0 && ex < MAP_WIDTH) map[cy][ex] = 'floor';
-                                    }
-                                    for (let cx = Math.min(ex, x); cx <= Math.max(ex, x); cx++) {
-                                        if (ey >= 0 && ey < MAP_HEIGHT && cx >= 0 && cx < MAP_WIDTH) map[y][cx] = 'floor';
-                                    }
-                                } else { // Вертикальный коридор
-                                    for (let cx = Math.min(ex, x); cx <= Math.max(ex, x); cx++) {
-                                        if (ey >= 0 && ey < MAP_HEIGHT && cx >= 0 && cx < MAP_WIDTH) map[ey][cx] = 'floor';
-                                    }
-                                    for (let cy = Math.min(ey, y); cy <= Math.max(ey, y); cy++) {
-                                        if (cy >= 0 && cy < MAP_HEIGHT && x >= 0 && x < MAP_WIDTH) map[cy][x] = 'floor';
-                                    }
-                                }
-                                connected = true;
-                                break;
-                            }
-                        }
-                        if (connected) break;
-                    }
-
-                    if (connected) {
-                        exitCreated = true;
-                    } else {
-                        // Если не удалось соединить, возможно, это был изолированный выход,
-                        // попробуем еще раз на другом месте.
-                        map[ey][ex] = 'wall'; // Вернуть стену, если не удалось соединить
-                    }
-                    attempts++;
-                }
-                if (!exitCreated) {
-                    console.warn(`Не удалось создать выход на ${border.edge} границе.`);
-                    // В крайнем случае, просто сделать случайную плитку пола на границе
-                    const pos = Math.floor(Math.random() * border.range);
-                    let ex, ey;
-                    if (border.varyingCoord === 'x') {
-                        ex = pos;
-                        ey = border.fixedCoord;
-                    } else {
-                        ex = border.fixedCoord;
-                        ey = pos;
-                    }
-                    map[ey][ex] = 'floor';
-                    logMessage(`Принудительно создан выход на ${border.edge} границе в (${ex}, ${ey}).`);
-                }
-            });
         }
         // --- End Dungeon Generation Logic ---
 
@@ -723,7 +653,16 @@
                         console.warn("Could not find a suitable spot for an enemy after many attempts.");
                         break;
                     }
-                } while (map[enemyY][enemyX] === 'wall' || (enemyX === player.x && enemyY === player.y) || getEnemyAt(enemyX, enemyY));
+                } while (
+                    map[enemyY][enemyX] === 'wall' || // Avoid walls
+                    (enemyX === player.x && enemyY === player.y) || // Avoid player's exact spawn point
+                    getEnemyAt(enemyX, enemyY) || // Avoid overlapping other enemies
+                    (enemyX >= HUB_X && enemyX < HUB_X + HUB_WIDTH && enemyY >= HUB_Y && enemyY < HUB_Y + HUB_HEIGHT) || // Avoid central hub
+                    (enemyX === Math.floor(HUB_X + HUB_WIDTH / 2) && enemyY < HUB_Y) || // Avoid North corridor
+                    (enemyY === Math.floor(HUB_Y + HUB_HEIGHT / 2) && enemyX < HUB_X) || // Avoid West corridor
+                    (enemyX === Math.floor(HUB_X + HUB_WIDTH / 2) && enemyY >= HUB_Y + HUB_HEIGHT) || // Avoid South corridor
+                    (enemyY === Math.floor(HUB_Y + HUB_HEIGHT / 2) && enemyX >= HUB_X + HUB_WIDTH) // Avoid East corridor
+                );
 
                 if (attempts <= maxAttempts) {
                     enemies.push({
@@ -792,9 +731,10 @@
             }
 
             otherPlayersListEl.innerHTML = '';
-            if (otherPlayers.length === 0) {
+            // Only show other players if Supabase is connected
+            if (!supabase || !userId || otherPlayers.length === 0) {
                 const li = document.createElement('li');
-                li.textContent = 'Нет других игроков';
+                li.textContent = 'Нет других игроков (или Supabase не подключен)';
                 otherPlayersListEl.appendChild(li);
             } else {
                 otherPlayers.forEach(otherPlayer => {
@@ -876,8 +816,14 @@
          * Updates the current player's data in Supabase.
          */
         async function updatePlayerPositionInSupabase() {
-            if (!gameReady || !supabase || !player.id) {
-                console.warn("Game not ready, Supabase client not available, or player ID not set for update.");
+            // Only update Supabase if it's initialized
+            if (!supabase || !userId) {
+                console.warn("Supabase not available, skipping player position update.");
+                return;
+            }
+
+            if (!gameReady || !player.id) {
+                console.warn("Game not ready or player ID not set for update.");
                 return;
             }
             try {
@@ -916,8 +862,14 @@
          * Updates the global game state (map and enemies) in Supabase.
          */
         async function updateGameStateInSupabase() {
-            if (!gameReady || !supabase) {
-                console.warn("Game not ready or Supabase client not available for game state update.");
+            // Only update Supabase if it's initialized
+            if (!supabase || !userId) {
+                console.warn("Supabase not available, skipping game state update.");
+                return;
+            }
+
+            if (!gameReady) {
+                console.warn("Game not ready for game state update.");
                 return;
             }
             try {
@@ -944,34 +896,56 @@
 
         /**
          * Listens for real-time updates of other players from Supabase.
+         * Also fetches existing players on initial load.
          */
-        function listenForOtherPlayers() {
-            if (!gameReady || !supabase || !player.id) {
+        async function listenForOtherPlayers() { // Made async
+            // Only listen if Supabase is initialized
+            if (!supabase || !userId) {
+                console.warn("Supabase not available, skipping real-time player listener.");
+                return;
+            }
+
+            if (!gameReady || !player.id) {
                 console.warn("Game not ready, Supabase client not available, or player ID not set for listening to other players.");
                 return;
             }
 
             // Отписаться от предыдущего канала, если существует (для всех игроков)
-            // Внимание: для "players_changes" мы не фильтруем по чанку,
-            // потому что нам нужно знать о игроках во всех чанках для отображения их на UI
-            // и для возможного взаимодействия, когда они переходят в наш чанк.
-            // Фильтрация будет происходить при отрисовке (drawGame) и обновлении UI (updateUI).
             if (supabase.channel('players_changes')) {
                 supabase.channel('players_changes').unsubscribe();
             }
 
+            // --- NEW: Fetch all existing players on initial load ---
+            try {
+                const { data, error } = await supabase
+                    .from('players')
+                    .select('*'); // Select all player data
+
+                if (error) {
+                    console.error("Ошибка при получении списка существующих игроков:", error);
+                    logMessage("Ошибка загрузки других игроков.");
+                } else if (data) {
+                    // Filter out the current player and populate otherPlayers
+                    otherPlayers = data.filter(p => p.id !== player.id);
+                    console.log("Existing other players fetched:", otherPlayers);
+                }
+            } catch (e) {
+                console.error("Исключение при получении списка существующих игроков:", e);
+                logMessage("Ошибка загрузки других игроков.");
+            }
+            // --- END NEW ---
 
             supabase
                 .channel('players_changes')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
                     console.log('Player change received!', payload);
-                    console.log('Payload for player change:', payload.new); // Добавлено логирование payload.new
+                    console.log('Payload for player change:', payload.new);
                     if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                         const changedPlayer = payload.new;
-                        // Если это наш собственный игрок, обновить его данные, но не добавлять в otherPlayers
+                        // If this is our own player, update their data, but not add to otherPlayers
                         if (changedPlayer.id === player.id) {
                             player.x = changedPlayer.x;
-                            player.y = changedPlayer.y; // Исправлена опечатка здесь
+                            player.y = changedPlayer.y; 
                             player.chunkX = changedPlayer.chunkX;
                             player.chunkY = changedPlayer.chunkY;
                             player.health = changedPlayer.health;
@@ -980,35 +954,44 @@
                             player.defense = changedPlayer.defense;
                             player.xp = changedPlayer.xp;
                             player.level = changedPlayer.level;
-                            // Не вызываем drawGame/updateUI здесь, так как это будет сделано после movePlayer
+                            // Not calling drawGame/updateUI here, as it will be done after movePlayer
                             return;
                         }
 
                         const existingIndex = otherPlayers.findIndex(p => p.id === changedPlayer.id);
                         if (existingIndex > -1) {
-                            otherPlayers[existingIndex] = changedPlayer; // Обновить существующего игрока
+                            otherPlayers[existingIndex] = changedPlayer; // Update existing player
                         } else {
-                            otherPlayers.push(changedPlayer); // Добавить нового игрока
+                            otherPlayers.push(changedPlayer); // Add new player
                         }
                     } else if (payload.eventType === 'DELETE') {
                         const deletedPlayerId = payload.old.id;
-                        otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId); // Удалить удаленного игрока
+                        otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId); // Remove deleted player
                     }
-                    console.log('Current otherPlayers array:', otherPlayers); // Добавлено логирование otherPlayers
+                    console.log('Current otherPlayers array:', otherPlayers);
                     drawGame();
                     updateUI();
                 })
                 .subscribe();
 
             logMessage("Подписка на других игроков активна.");
+            // Initial draw and UI update after fetch
+            drawGame();
+            updateUI();
         }
 
         /**
          * Listens for real-time updates to the global game state (map and enemies).
          */
         function listenForGameStateChanges() {
-            if (!gameReady || !supabase) {
-                console.warn("Game not ready or Supabase client not available for listening to game state.");
+            // Only listen if Supabase is initialized
+            if (!supabase || !userId) {
+                console.warn("Supabase not available, skipping real-time game state listener.");
+                return;
+            }
+
+            if (!gameReady) {
+                console.warn("Game not ready for listening to game state.");
                 return;
             }
 
@@ -1207,12 +1190,72 @@
             await updateGameStateInSupabase(); // Сохранить новое состояние в Supabase
             drawGame();
             updateUI();
-            logMessage('Подземелье пересоздано!');
+            logMessage('Подзеземелье пересоздано!');
             console.log(`Dungeon for chunk ${getCurrentWorldId()} recreated.`);
         }
 
-        // Initialize Supabase and start game on window load
-        window.onload = initializeSupabase;
+        // Main game initialization function
+        async function initializeGame() {
+            // Get loading overlay element as early as possible
+            const loadingOverlay = document.getElementById('loadingOverlay');
+
+            // Show loading overlay initially
+            loadingOverlay.style.display = 'flex';
+            console.log("Game initialization started. Showing loading overlay.");
+
+            // Immediately initialize local game state and draw
+            initializeMap();
+            spawnEnemies();
+            drawGame(); // Initial draw
+            updateUI(); // Initial UI update
+            document.addEventListener('keydown', handleKeyDown);
+            logMessage('Используйте клавиши WASD или стрелки для перемещения.');
+
+            // Set gameReady to true to allow player movement and local game logic
+            gameReady = true;
+            player.name = `Локальный Игрок ${player.id.substring(0, 6)}`; // Set local player name
+            playerIDEl.textContent = player.id; // Display local ID
+            updateUI(); // Update UI to reflect local mode status initially
+
+            // Hide the loading overlay immediately after initial local setup
+            console.log("Attempting to hide loading overlay directly via style.display = 'none'...");
+            loadingOverlay.style.display = 'none'; // Directly hide the element
+            console.log("Loading overlay should now be hidden. Game should be visible locally.");
+
+            // Attempt Supabase connection and full game setup in the background
+            try {
+                console.log("Attempting Supabase connection for online features...");
+                await initializeSupabaseConnection(); // This will set supabase and userId if successful
+                
+                // If Supabase connection was successful, proceed with online features setup
+                console.log("Supabase connection successful. Proceeding with online features setup.");
+                await setupOnlineGameFeatures();
+
+            } catch (error) {
+                console.error("Фатальная ошибка при инициализации игры или подключении к Supabase:", error);
+                logMessage("Критическая ошибка. Игра запускается в одиночном режиме без сохранения.");
+                
+                // Ensure local mode variables are set correctly on error
+                supabase = null;
+                userId = null;
+                // Player ID and name are already set for local mode by default (crypto.randomUUID)
+                playerIDEl.textContent = player.id; // Update UI to show local ID
+                
+                // Re-draw and update UI to reflect local mode
+                initializeMap(); // Re-initialize map in case of partial failure
+                spawnEnemies();
+                drawGame();
+                updateUI();
+                document.addEventListener('keydown', handleKeyDown); // Ensure listener is still there
+                logMessage("Подключение к Supabase не удалось. Игра работает в одиночном режиме.");
+
+                // Ensure overlay is hidden even on error (should already be hidden, but for robustness)
+                loadingOverlay.style.display = 'none';
+                console.log("Loading overlay confirmed hidden after error. Game should now be visible locally.");
+            }
+        }
+
+        window.onload = initializeGame;
     </script>
 </body>
 </html>

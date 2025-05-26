@@ -20,6 +20,7 @@
             box-sizing: border-box;
         }
         .game-container {
+            position: relative; /* Для позиционирования оверлея */
             display: flex;
             flex-direction: column;
             gap: 20px;
@@ -115,21 +116,37 @@
                 gap: 20px;
             }
         }
+
+        /* Loading overlay styles */
+        #loadingOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2em;
+            z-index: 100;
+            border-radius: 12px; /* Match container border-radius */
+        }
     </style>
 </head>
 <body>
     <div class="game-container">
-        <div class="game-main">
-            <canvas id="gameCanvas"></canvas>
-            <div class="message-log" id="messageLog">
-                <p>Добро пожаловать в подземелье!</p>
-            </div>
-            <div class="controls">
-                <button class="control-button" onclick="movePlayer(0, -1)">Вверх</button>
-                <button class="control-button" onclick="movePlayer(0, 1)">Вниз</button>
-                <button class="control-button" onclick="movePlayer(-1, 0)">Влево</button>
-                <button class="control-button" onclick="movePlayer(1, 0)">Вправо</button>
-            </div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="loadingOverlay">Загрузка...</div>
+        <div class="message-log" id="messageLog">
+            <p>Добро пожаловать в подземелье!</p>
+        </div>
+        <div class="controls">
+            <button class="control-button" onclick="movePlayer(0, -1)">Вверх</button>
+            <button class="control-button" onclick="movePlayer(0, 1)">Вниз</button>
+            <button class="control-button" onclick="movePlayer(-1, 0)">Влево</button>
+            <button class="control-button" onclick="movePlayer(1, 0)">Вправо</button>
         </div>
         <div class="game-sidebar">
             <div class="game-info">
@@ -164,27 +181,28 @@
         // Supabase imports
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-        // Supabase configuration (from your provided details)
+        // Supabase configuration
         const SUPABASE_URL = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
+        const WORLD_ID = 'world_1'; // Идентификатор для глобального состояния мира
 
         let supabase;
-        let userId; // This will now store the Supabase auth.uid()
-        let gameReady = false; // Flag to ensure Supabase is initialized and user ID is set
+        let userId;
+        let gameReady = false;
 
         // Game configuration
-        const TILE_SIZE = 40; // Size of each tile in pixels
-        const MAP_WIDTH = 15; // Map width in tiles
-        const MAP_HEIGHT = 15; // Map height in tiles
+        const TILE_SIZE = 40;
+        const MAP_WIDTH = 15;
+        const MAP_HEIGHT = 15;
 
         // Game state
         let player = {
-            id: '', // Will be set to Supabase auth.uid()
+            id: '',
             name: 'Игрок',
             x: 0,
             y: 0,
             health: 100,
-            maxhealth: 100, // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
+            maxhealth: 100,
             attack: 10,
             defense: 5,
             xp: 0,
@@ -192,31 +210,30 @@
             inventory: []
         };
 
-        let map = []; // 2D array to represent the game map
-        let enemies = []; // Array to store enemy objects (local to each player for now)
-        let otherPlayers = []; // Array to store other connected players
+        let map = []; // 2D array to represent the game map (shared)
+        let enemies = []; // Array to store enemy objects (shared)
+        let otherPlayers = [];
 
         // Canvas setup
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        const loadingOverlay = document.getElementById('loadingOverlay');
 
-        // Set canvas dimensions based on map size and tile size
         canvas.width = MAP_WIDTH * TILE_SIZE;
         canvas.height = MAP_HEIGHT * TILE_SIZE;
 
         // Player image
         const playerImage = new Image();
         playerImage.src = 'https://www.speedrun.com/static/user/j5wngezj/icon.png';
+        playerImage.isLoaded = false;
         playerImage.onload = () => {
             console.log("Player image loaded successfully!");
-            playerImage.isLoaded = true; // Mark as loaded
-            // No direct drawGame() here, it will be called by setupGame()
+            playerImage.isLoaded = true;
         };
         playerImage.onerror = () => {
             console.error("Failed to load player image.");
-            playerImage.isLoaded = false; // Mark as failed
+            playerImage.isLoaded = false;
         };
-        playerImage.isLoaded = false; // Initial state
 
         // UI elements
         const playerIDEl = document.getElementById('playerID');
@@ -229,68 +246,81 @@
         const playerYEl = document.getElementById('playerY');
         const inventoryListEl = document.getElementById('inventoryList');
         const messageLogEl = document.getElementById('messageLog');
-        const otherPlayersListEl = document.getElementById('otherPlayersList'); // <--- ИЗМЕНЕНО: Исправлено присваивание
+        const otherPlayersListEl = document.getElementById('otherPlayersList');
 
         /**
          * Initializes Supabase and authenticates the user (anonymously).
          */
         async function initializeSupabase() {
+            loadingOverlay.style.display = 'flex'; // Show loading overlay
             try {
                 supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 console.log("Supabase client initialized.");
                 console.log("URL:", SUPABASE_URL);
                 console.log("Anon Key (first 10 chars):", SUPABASE_ANON_KEY.substring(0, 10) + "...");
 
-                // This listener will handle setting userId and calling setupGame
-                // once authentication is successful, whether from a new sign-in
-                // or an existing session.
-                supabase.auth.onAuthStateChange(async (event, session) => {
-                    console.log("Auth state change event:", event);
-                    if (session && session.user) {
-                        userId = session.user.id;
-                        player.id = userId;
-                        player.name = `Игрок ${userId.substring(0, 6)}`;
-                        playerIDEl.textContent = userId;
-
-                        logMessage(`Вы вошли как: ${player.name}`);
-                        if (!gameReady) { // Only call setupGame once
-                            gameReady = true;
-                            await setupGame();
+                const authPromise = new Promise(async (resolve, reject) => {
+                    // This listener will catch both initial session and new sign-ins
+                    supabase.auth.onAuthStateChange((event, session) => {
+                        console.log("Auth state change event:", event);
+                        if (session && session.user) {
+                            resolve(session.user);
+                        } else if (event === 'SIGNED_OUT') {
+                            // If signed out, we might want to reject or handle differently
+                            // For this game, we'll try to sign in anonymously again if needed.
+                            console.log("User signed out, attempting anonymous sign-in if no session.");
                         }
-                    } else if (event === 'SIGNED_OUT') {
-                        logMessage('Вы вышли из системы.');
-                        gameReady = false;
-                        userId = null;
-                        // Optionally handle game state reset or re-login UI
+                    });
+
+                    // First, try to get the current session
+                    const { data: { session }, error: getSessionError } = await supabase.auth.getSession();
+
+                    if (getSessionError) {
+                        console.error("Ошибка получения сессии:", getSessionError);
+                        logMessage("Ошибка получения сессии. Попытка анонимного входа...");
+                        const { error: signInError } = await supabase.auth.signInAnonymously();
+                        if (signInError) {
+                            console.error("Критическая ошибка анонимного входа:", signInError);
+                            logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
+                            reject(signInError); // Reject if anonymous sign-in also fails
+                        } else {
+                            console.log("Анонимный вход успешно инициирован.");
+                            // onAuthStateChange will handle the resolution
+                        }
+                    } else if (!session) {
+                        // No existing session, try to sign in anonymously
+                        console.log("Нет активной сессии. Попытка анонимного входа...");
+                        const { error: signInError } = await supabase.auth.signInAnonymously();
+                        if (signInError) {
+                            console.error("Критическая ошибка анонимного входа:", signInError);
+                            logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
+                            reject(signInError); // Reject if anonymous sign-in fails
+                        } else {
+                            console.log("Анонимный вход успешно инициирован.");
+                            // onAuthStateChange will handle the resolution
+                        }
+                    } else {
+                        // Session exists, resolve immediately with user data
+                        console.log("Существует активная сессия, пользователь:", session.user.id);
+                        resolve(session.user);
                     }
                 });
 
-                // Attempt to get the current session or sign in anonymously
-                const { data: { session }, error: getSessionError } = await supabase.auth.getSession();
-                if (getSessionError) {
-                    console.error("Ошибка получения сессии:", getSessionError);
-                    logMessage("Ошибка получения сессии. Попытка анонимного входа...");
-                    const { error: signInError } = await supabase.auth.signInAnonymously();
-                    if (signInError) {
-                        console.error("Ошибка анонимного входа:", signInError);
-                        logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
-                    }
-                } else if (!session) {
-                    // No existing session, try to sign in anonymously
-                    console.log("Нет активной сессии. Попытка анонимного входа...");
-                    const { error: signInError } = await supabase.auth.signInAnonymously();
-                    if (signInError) {
-                        console.error("Ошибка анонимного входа:", signInError);
-                        logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
-                    }
-                } else {
-                    // Session exists, onAuthStateChange will handle it.
-                    console.log("Существует активная сессия.");
-                }
+                const user = await authPromise;
+                userId = user.id;
+                player.id = userId;
+                player.name = `Игрок ${userId.substring(0, 6)}`;
+                playerIDEl.textContent = userId;
+                logMessage(`Вы вошли как: ${player.name}`);
+                gameReady = true;
+                console.log("Calling setupGame...");
+                await setupGame(); // Now setupGame is guaranteed to run after authentication
 
             } catch (error) {
                 console.error("Критическая ошибка инициализации Supabase:", error);
                 logMessage("Критическая ошибка подключения к игре. Пожалуйста, попробуйте позже.");
+            } finally {
+                loadingOverlay.style.display = 'none'; // Hide loading overlay
             }
         }
 
@@ -298,37 +328,39 @@
          * Sets up the game state and listeners after Supabase is ready.
          */
         async function setupGame() {
-            initializeMap();
-            spawnEnemies(); // Enemies are local for now
+            // 1. Load or initialize global game state (map and enemies)
+            await loadOrCreateGameState();
 
-            // Fetch existing player data if it exists, otherwise insert new
-            const { data: existingPlayer, error: fetchError } = await supabase
+            // 2. Load or initialize player data
+            const { data: existingPlayer, error: fetchPlayerError } = await supabase
                 .from('players')
                 .select('*')
                 .eq('id', player.id)
                 .single();
 
-            if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 means "no rows found"
-                console.error("Ошибка загрузки данных игрока:", fetchError);
+            if (fetchPlayerError && fetchPlayerError.code !== 'PGRST116') {
+                console.error("Ошибка загрузки данных игрока:", fetchPlayerError);
                 logMessage("Ошибка загрузки вашего прогресса.");
             } else if (existingPlayer) {
-                // Load existing player data
                 player.x = existingPlayer.x;
                 player.y = existingPlayer.y;
                 player.health = existingPlayer.health;
-                player.maxhealth = existingPlayer.maxhealth; // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
+                player.maxhealth = existingPlayer.maxhealth;
                 player.attack = existingPlayer.attack;
                 player.defense = existingPlayer.defense;
                 player.xp = existingPlayer.xp;
                 player.level = existingPlayer.level;
                 logMessage("Ваш прогресс загружен.");
             } else {
-                // Insert new player data if not found
-                await updatePlayerPositionInSupabase(); // This will insert the initial player state
+                await updatePlayerPositionInSupabase(); // Insert initial player state
                 logMessage("Новый профиль игрока создан.");
             }
 
+            // 3. Set up real-time listeners
             listenForOtherPlayers();
+            listenForGameStateChanges(); // Listen for changes to map/enemies
+
+            // 4. Initial draw and UI update
             drawGame();
             updateUI();
             document.addEventListener('keydown', handleKeyDown);
@@ -336,51 +368,99 @@
         }
 
         /**
-         * Initializes the game map with walls and empty spaces.
+         * Loads global game state (map and enemies) from Supabase, or creates it if not found.
          */
-        function initializeMap() {
-            // Create a map filled with empty spaces
-            for (let y = 0; y < MAP_HEIGHT; y++) {
-                map[y] = [];
-                for (let x = 0; x < MAP_WIDTH; x++) {
-                    map[y][x] = 'floor'; // 'floor', 'wall', 'enemy', 'item'
-                }
-            }
+        async function loadOrCreateGameState() {
+            console.log("Attempting to load game state...");
+            const { data, error } = await supabase
+                .from('game_state')
+                .select('*')
+                .eq('id', WORLD_ID)
+                .single();
 
-            // Add some random walls
-            for (let i = 0; i < (MAP_WIDTH * MAP_HEIGHT) / 10; i++) {
-                const wallX = Math.floor(Math.random() * MAP_WIDTH);
-                const wallY = Math.floor(Math.random() * MAP_HEIGHT);
-                if (wallX !== player.x || wallY !== player.y) { // Don't place wall on player start
-                    map[wallY][wallX] = 'wall';
-                }
+            if (error && error.code !== 'PGRST116') { // PGRST116 means "no rows found"
+                console.error("Ошибка загрузки глобального состояния игры:", error);
+                logMessage("Ошибка загрузки мира.");
+                // Fallback: initialize locally if loading fails
+                initializeMap();
+                spawnEnemies();
+                await updateGameStateInSupabase(); // Try to save the newly generated state
+            } else if (data) {
+                console.log("Global game state loaded:", data);
+                // Parse and load map and enemies
+                map = JSON.parse(data.map_data);
+                enemies = JSON.parse(data.enemies_data);
+                logMessage("Мир загружен.");
+            } else {
+                console.log("No existing game state found. Initializing new world...");
+                // No existing state, create a new one
+                initializeMap();
+                spawnEnemies();
+                await updateGameStateInSupabase(); // Save the newly generated state
+                logMessage("Новый мир создан.");
             }
         }
 
         /**
+         * Initializes the game map with walls and empty spaces.
+         * This function is now called only if no map data is found in Supabase.
+         */
+        function initializeMap() {
+            map = []; // Ensure map is empty before filling
+            for (let y = 0; y < MAP_HEIGHT; y++) {
+                map[y] = [];
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    map[y][x] = 'floor';
+                }
+            }
+
+            for (let i = 0; i < (MAP_WIDTH * MAP_HEIGHT) / 10; i++) {
+                const wallX = Math.floor(Math.random() * MAP_WIDTH);
+                const wallY = Math.floor(Math.random() * MAP_HEIGHT);
+                if (map[wallY] && map[wallY][wallX] !== undefined && (wallX !== player.x || wallY !== player.y)) {
+                    map[wallY][wallX] = 'wall';
+                }
+            }
+            console.log("Map initialized locally:", map);
+        }
+
+        /**
          * Spawns enemies randomly on the map.
+         * This function is now called only if no enemy data is found in Supabase.
          */
         function spawnEnemies() {
-            enemies = []; // Clear existing enemies
-            const numEnemies = Math.floor(Math.random() * 5) + 3; // 3-7 enemies
+            enemies = [];
+            const numEnemies = Math.floor(Math.random() * 5) + 3;
             for (let i = 0; i < numEnemies; i++) {
                 let enemyX, enemyY;
+                let attempts = 0;
+                const maxAttempts = 100;
                 do {
                     enemyX = Math.floor(Math.random() * MAP_WIDTH);
                     enemyY = Math.floor(Math.random() * MAP_HEIGHT);
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        console.warn("Could not find a suitable spot for an enemy after many attempts.");
+                        break;
+                    }
                 } while (map[enemyY][enemyX] === 'wall' || (enemyX === player.x && enemyY === player.y) || getEnemyAt(enemyX, enemyY));
 
-                enemies.push({
-                    x: enemyX,
-                    y: enemyY,
-                    health: 30,
-                    attack: 8,
-                    defense: 2,
-                    xpValue: 10,
-                    name: 'Гоблин' // Placeholder enemy name
-                });
-                map[enemyY][enemyX] = 'enemy'; // Mark tile as containing an enemy
+                if (attempts <= maxAttempts) {
+                    enemies.push({
+                        x: enemyX,
+                        y: enemyY,
+                        health: 30,
+                        attack: 8,
+                        defense: 2,
+                        xpValue: 10,
+                        name: 'Гоблин'
+                    });
+                    // Note: We don't update map[enemyY][enemyX] = 'enemy' here.
+                    // The map_data in Supabase will only store 'floor'/'wall'.
+                    // Enemy positions are tracked separately in enemies_data.
+                }
             }
+            console.log("Enemies spawned locally:", enemies);
         }
 
         /**
@@ -400,8 +480,8 @@
         function logMessage(message) {
             const p = document.createElement('p');
             p.textContent = message;
-            messageLogEl.prepend(p); // Add to the top
-            if (messageLogEl.children.length > 20) { // Keep log from getting too long
+            messageLogEl.prepend(p);
+            if (messageLogEl.children.length > 20) {
                 messageLogEl.removeChild(messageLogEl.lastChild);
             }
         }
@@ -449,26 +529,24 @@
          * Draws the game state on the canvas.
          */
         function drawGame() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // Draw map tiles
             for (let y = 0; y < MAP_HEIGHT; y++) {
                 for (let x = 0; x < MAP_WIDTH; x++) {
-                    // Ensure map[y] and map[y][x] exist before accessing
                     if (!map[y] || map[y][x] === undefined) {
                         console.warn(`Map tile at (${x}, ${y}) is undefined. Skipping draw.`);
-                        continue; // Skip drawing this tile if it's undefined
+                        continue;
                     }
 
                     const tileType = map[y][x];
-                    let color = '#333'; // Default floor color
+                    let color = '#333';
                     if (tileType === 'wall') {
-                        color = '#666'; // Wall color
+                        color = '#666';
                     }
                     ctx.fillStyle = color;
                     ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 
-                    // Draw grid lines
                     ctx.strokeStyle = '#222';
                     ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                 }
@@ -476,28 +554,25 @@
 
             // Draw enemies
             enemies.forEach(enemy => {
-                ctx.fillStyle = 'red'; // Enemy color
-                // Draw enemies slightly smaller and centered
+                ctx.fillStyle = 'red';
                 ctx.fillRect(enemy.x * TILE_SIZE + TILE_SIZE / 4, enemy.y * TILE_SIZE + TILE_SIZE / 4, TILE_SIZE / 2, TILE_SIZE / 2);
             });
 
             // Draw other players
             otherPlayers.forEach(otherPlayer => {
-                // Ensure we don't draw the current player as an "other player"
                 if (otherPlayer.id === player.id) return;
 
-                ctx.fillStyle = 'green'; // Other player color
+                ctx.fillStyle = 'green';
                 ctx.fillRect(otherPlayer.x * TILE_SIZE, otherPlayer.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                 ctx.fillStyle = 'white';
                 ctx.font = '10px Inter';
                 ctx.fillText(otherPlayer.name, otherPlayer.x * TILE_SIZE, otherPlayer.y * TILE_SIZE - 5);
             });
 
-            // Draw current player (using image or fallback to square)
-            if (playerImage.isLoaded) { // Check if image is fully loaded
+            // Draw current player
+            if (playerImage.isLoaded) {
                 ctx.drawImage(playerImage, player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             } else {
-                // Fallback to drawing a blue square if image not loaded or failed
                 ctx.fillStyle = 'blue';
                 ctx.fillRect(player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             }
@@ -523,13 +598,13 @@
                         x: player.x,
                         y: player.y,
                         health: player.health,
-                        maxhealth: player.maxhealth, // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
+                        maxhealth: player.maxhealth,
                         attack: player.attack,
                         defense: player.defense,
                         xp: player.xp,
                         level: player.level,
-                        updated_at: new Date().toISOString() // Update timestamp
-                    }, { onConflict: 'id' }); // Conflict on 'id' means update if exists, insert if not
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
 
                 if (error) {
                     console.error("Ошибка записи данных игрока в Supabase:", error);
@@ -544,6 +619,36 @@
         }
 
         /**
+         * Updates the global game state (map and enemies) in Supabase.
+         */
+        async function updateGameStateInSupabase() {
+            if (!gameReady || !supabase) {
+                console.warn("Game not ready or Supabase client not available for game state update.");
+                return;
+            }
+            try {
+                const { data, error } = await supabase
+                    .from('game_state')
+                    .upsert({
+                        id: WORLD_ID,
+                        map_data: JSON.stringify(map),
+                        enemies_data: JSON.stringify(enemies),
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
+
+                if (error) {
+                    console.error("Ошибка записи глобального состояния игры в Supabase:", error);
+                    logMessage("Ошибка сохранения состояния мира.");
+                } else {
+                    console.log("Global game state saved to Supabase.");
+                }
+            } catch (e) {
+                console.error("Исключение при записи глобального состояния игры в Supabase:", e);
+                logMessage("Ошибка сохранения состояния мира.");
+            }
+        }
+
+        /**
          * Listens for real-time updates of other players from Supabase.
          */
         function listenForOtherPlayers() {
@@ -552,41 +657,24 @@
                 return;
             }
 
-            // Initial fetch of all players
             supabase
-                .from('players')
-                .select('*')
-                .then(({ data, error }) => {
-                    if (error) {
-                        console.error("Ошибка при получении начальных данных игроков:", error);
-                        logMessage("Ошибка загрузки начальных данных других игроков.");
-                    } else {
-                        otherPlayers = data.filter(p => p.id !== player.id);
-                        drawGame();
-                        updateUI();
-                    }
-                });
-
-            // Real-time subscription for changes
-            supabase
-                .channel('players_changes') // You can name your channel
+                .channel('players_changes')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
-                    // console.log('Change received!', payload);
+                    console.log('Player change received!', payload);
                     if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                         const changedPlayer = payload.new;
                         if (changedPlayer.id === player.id) {
-                            // This is the current player's own update, ignore for otherPlayers list
                             return;
                         }
                         const existingIndex = otherPlayers.findIndex(p => p.id === changedPlayer.id);
                         if (existingIndex > -1) {
-                            otherPlayers[existingIndex] = changedPlayer; // Update existing player
+                            otherPlayers[existingIndex] = changedPlayer;
                         } else {
-                            otherPlayers.push(changedPlayer); // Add new player
+                            otherPlayers.push(changedPlayer);
                         }
                     } else if (payload.eventType === 'DELETE') {
                         const deletedPlayerId = payload.old.id;
-                        otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId); // Remove deleted player
+                        otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId);
                     }
                     drawGame();
                     updateUI();
@@ -595,6 +683,33 @@
 
             logMessage("Подписка на других игроков активна.");
         }
+
+        /**
+         * Listens for real-time updates to the global game state (map and enemies).
+         */
+        function listenForGameStateChanges() {
+            if (!gameReady || !supabase) {
+                console.warn("Game not ready or Supabase client not available for listening to game state.");
+                return;
+            }
+
+            supabase
+                .channel('game_state_changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'game_state', filter: `id=eq.${WORLD_ID}` }, payload => {
+                    console.log('Game state change received!', payload);
+                    if (payload.eventType === 'UPDATE') {
+                        const updatedState = payload.new;
+                        map = JSON.parse(updatedState.map_data);
+                        enemies = JSON.parse(updatedState.enemies_data);
+                        logMessage("Мир обновлен.");
+                        drawGame();
+                    }
+                })
+                .subscribe();
+
+            logMessage("Подписка на состояние мира активна.");
+        }
+
 
         /**
          * Handles player movement.
@@ -613,13 +728,13 @@
                 return;
             }
 
-            // Check for walls
+            // Check for walls (from shared map data)
             if (map[newY][newX] === 'wall') {
                 logMessage('Стена блокирует ваш путь.');
                 return;
             }
 
-            // Check for enemies (local combat)
+            // Check for enemies (from shared enemies data)
             const targetEnemy = getEnemyAt(newX, newY);
             if (targetEnemy) {
                 logMessage(`Вы атакуете ${targetEnemy.name}!`);
@@ -641,10 +756,10 @@
 
         /**
          * Handles combat between attacker and defender.
-         * @param {object} attacker - The attacking entity (player or inemy).
+         * @param {object} attacker - The attacking entity (player or enemy).
          * @param {object} defender - The defending entity (player or enemy).
          */
-        function combat(attacker, defender) {
+        async function combat(attacker, defender) {
             let damage = Math.max(0, attacker.attack - defender.defense);
             defender.health -= damage;
             logMessage(`${attacker.name} наносит ${damage} урона ${defender.name}.`);
@@ -655,12 +770,11 @@
                     logMessage('Вы были побеждены. Игра окончена!');
                     // Implement game over logic (e.g., reset game, show message)
                 } else {
-                    // Enemy defeated
+                    // Enemy defeated - update global enemies state
                     player.xp += defender.xpValue;
                     logMessage(`Вы получили ${defender.xpValue} опыта.`);
-                    // Remove enemy from the map and enemies array
-                    map[defender.y][defender.x] = 'floor'; // Set tile back to floor
-                    enemies = enemies.filter(e => e !== defender);
+                    enemies = enemies.filter(e => e !== defender); // Remove defeated enemy
+                    await updateGameStateInSupabase(); // Save updated enemies
                     checkLevelUp();
                 }
             } else {
@@ -681,12 +795,12 @@
          * Checks if the player has enough XP to level up.
          */
         function checkLevelUp() {
-            const xpNeededForNextLevel = player.level * 50; // Simple XP curve
+            const xpNeededForNextLevel = player.level * 50;
             if (player.xp >= xpNeededForNextLevel) {
                 player.level++;
-                player.xp -= xpNeededForNextLevel; // Carry over excess XP
-                player.maxhealth += 10; // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
-                player.health = player.maxhealth; // Restore health on level up <--- ИЗМЕНЕНО: maxHealth -> maxhealth
+                player.xp -= xpNeededForNextLevel;
+                player.maxhealth += 10;
+                player.health = player.maxhealth;
                 player.attack += 2;
                 player.defense += 1;
                 logMessage(`Поздравляем! Вы достигли уровня ${player.level}!`);
@@ -725,4 +839,3 @@
     </script>
 </body>
 </html>
- 

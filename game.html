@@ -9,8 +9,8 @@
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #1a202c; /* Dark background */
-            color: #e2e8f0; /* Light text */
+            background-color: #1a202c; /* Темный фон */
+            color: #e2e8f0; /* Светлый текст */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -20,105 +20,139 @@
             box-sizing: border-box;
         }
         .game-container {
-            position: relative; /* Для позиционирования оверлея */
+            position: relative;
             display: flex;
             flex-direction: column; /* По умолчанию колонками для маленьких экранов */
-            gap: 20px;
-            background-color: #2d3748; /* Slightly lighter dark background */
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.3);
-            max-width: 900px;
+            gap: 24px; /* Увеличенный отступ */
+            background: linear-gradient(145deg, #2d3748, #1a202c); /* Современный градиент */
+            padding: 32px; /* Увеличенный отступ */
+            border-radius: 16px; /* Более скругленные углы */
+            box-shadow: 0 15px 25px rgba(0, 0, 0, 0.5); /* Более выраженная тень */
+            max-width: 1000px; /* Увеличена максимальная ширина */
             width: 100%;
-            align-items: center; /* Центрирование элементов по горизонтали в колонке */
-            justify-content: center; /* Центрирование элементов по вертикали в колонке */
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(74, 85, 104, 0.5); /* Мягкая рамка */
         }
         canvas {
             background-color: #000;
             border: 2px solid #4a5568;
-            border-radius: 8px;
+            border-radius: 10px; /* Скругленные углы для канваса */
             display: block;
-            width: 100%; /* Make canvas responsive */
-            max-width: 600px; /* Max width for canvas */
-            aspect-ratio: 1 / 1; /* Keep it square */
+            width: 100%;
+            max-width: 600px;
+            aspect-ratio: 1 / 1;
             margin: 0 auto;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4);
         }
-        .game-info {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
+        .game-info, .message-log {
             background-color: #2d3748;
-            padding: 15px;
-            border-radius: 8px;
+            padding: 20px;
+            border-radius: 10px;
             border: 1px solid #4a5568;
+            box-shadow: 0 5px 10px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s ease-in-out; /* Плавный переход */
+        }
+        .game-info:hover, .message-log:hover {
+            transform: translateY(-3px); /* Легкий эффект при наведении */
         }
         .game-info h2 {
-            font-size: 1.25rem;
-            font-weight: bold;
-            color: #a0aec0;
-            margin-bottom: 5px;
+            font-size: 1.4rem; /* Увеличенный размер шрифта */
+            font-weight: 700; /* Более жирный */
+            color: #90cdf4; /* Более яркий синий */
+            margin-bottom: 10px;
+            text-shadow: 0 0 5px rgba(144, 205, 244, 0.3); /* Легкая тень для заголовка */
         }
         .game-info p {
-            font-size: 1rem;
+            font-size: 1.05rem; /* Немного увеличенный размер шрифта */
             color: #cbd5e0;
+            line-height: 1.5;
+            word-break: break-word; /* Перенос длинных слов */
         }
         .message-log {
-            background-color: #1a202c;
-            border: 1px solid #4a5568;
-            border-radius: 8px;
-            padding: 10px;
-            min-height: 100px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-size: 0.9rem;
+            min-height: 120px; /* Увеличенная минимальная высота */
+            max-height: 250px; /* Увеличенная максимальная высота */
+            font-size: 0.95rem;
             color: #a0aec0;
+            overflow-y: auto;
+            scrollbar-width: thin; /* Тонкий скроллбар для Firefox */
+            scrollbar-color: #4a5568 #2d3748; /* Цвет скроллбара */
+        }
+        .message-log::-webkit-scrollbar {
+            width: 8px; /* Ширина скроллбара для Webkit */
+        }
+        .message-log::-webkit-scrollbar-track {
+            background: #2d3748; /* Фон трека скроллбара */
+            border-radius: 10px;
+        }
+        .message-log::-webkit-scrollbar-thumb {
+            background-color: #4a5568; /* Цвет ползунка скроллбара */
+            border-radius: 10px;
+            border: 2px solid #2d3748;
         }
         .message-log p {
             margin: 0;
-            padding: 2px 0;
+            padding: 4px 0;
+            border-bottom: 1px dashed rgba(74, 85, 104, 0.3); /* Разделитель сообщений */
+            word-break: break-word; /* Перенос длинных слов в логе */
+        }
+        .message-log p:last-child {
+            border-bottom: none;
         }
         .controls {
             display: flex;
+            flex-wrap: wrap; /* Перенос кнопок на новую строку */
             justify-content: center;
-            gap: 10px;
-            margin-top: 10px;
+            gap: 12px; /* Увеличенный отступ между кнопками */
+            margin-top: 15px;
         }
         .control-button {
-            background-color: #4299e1; /* Blue */
+            background: linear-gradient(90deg, #4299e1, #63b3ed); /* Градиент для кнопок */
             color: white;
-            padding: 10px 15px;
-            border-radius: 8px;
+            padding: 12px 20px; /* Увеличенный padding */
+            border-radius: 10px; /* Скругленные углы */
             font-weight: bold;
             cursor: pointer;
-            transition: background-color 0.2s ease;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease; /* Плавный переход для всех свойств */
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3); /* Более выраженная тень */
+            border: none; /* Убираем стандартную рамку */
+            text-transform: uppercase; /* Заглавные буквы */
+            letter-spacing: 0.5px; /* Небольшой интервал между буквами */
         }
         .control-button:hover {
-            background-color: #3182ce; /* Darker blue */
+            background: linear-gradient(90deg, #3182ce, #4299e1); /* Изменение градиента при наведении */
+            transform: translateY(-2px) scale(1.02); /* Небольшое поднятие и увеличение */
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+        }
+        .control-button:active {
+            transform: translateY(0) scale(0.98); /* Эффект нажатия */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
 
         /* Responsive adjustments */
         @media (min-width: 768px) {
             .game-container {
-                flex-direction: row; /* Переключаемся на строки для больших экранов */
-                align-items: flex-start; /* Выравнивание элементов по началу поперечной оси (сверху) */
-                justify-content: space-between; /* Распределение пространства между основной частью и боковой панелью */
+                flex-direction: row;
+                align-items: flex-start;
+                justify-content: space-between;
+                padding: 40px; /* Еще больше отступа на больших экранах */
             }
             .game-main {
-                flex: 2; /* Занимает 2 части доступного пространства */
+                flex: 2;
                 display: flex;
                 flex-direction: column;
-                gap: 20px;
-                flex-shrink: 0; /* Предотвращает сжатие ниже размера содержимого */
-                min-width: 0; /* Позволяет содержимому сжиматься */
+                gap: 24px;
+                flex-shrink: 0;
+                min-width: 0;
             }
             .game-sidebar {
-                flex: 1; /* Занимает 1 часть доступного пространства */
-                min-width: 250px; /* Минимальная ширина для боковой панели */
+                flex: 1;
+                min-width: 280px; /* Увеличена минимальная ширина боковой панели */
+                max-width: 350px; /* Ограничение максимальной ширины */
                 display: flex;
                 flex-direction: column;
-                gap: 20px;
-                flex-shrink: 0; /* Предотвращает сжатие ниже размера содержимого */
+                gap: 24px;
+                flex-shrink: 0;
             }
         }
 
@@ -129,29 +163,34 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.9); /* Более темный фон для загрузки */
             color: white;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 2em;
+            font-size: 2.5em; /* Увеличенный размер шрифта */
+            font-weight: bold;
             z-index: 100;
-            border-radius: 12px; /* Match container border-radius */
+            border-radius: 16px; /* Соответствует контейнеру */
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5); /* Тень для текста загрузки */
         }
     </style>
 </head>
 <body>
     <div class="game-container">
-        <canvas id="gameCanvas"></canvas>
-        <div id="loadingOverlay">Загрузка...</div>
-        <div class="message-log" id="messageLog">
-            <p>Добро пожаловать в подземелье!</p>
-        </div>
-        <div class="controls">
-            <button class="control-button" onclick="movePlayer(0, -1)">Вверх</button>
-            <button class="control-button" onclick="movePlayer(0, 1)">Вниз</button>
-            <button class="control-button" onclick="movePlayer(-1, 0)">Влево</button>
-            <button class="control-button" onclick="movePlayer(1, 0)">Вправо</button>
+        <div class="game-main">
+            <canvas id="gameCanvas"></canvas>
+            <div id="loadingOverlay">Загрузка...</div>
+            <div class="message-log" id="messageLog">
+                <p>Добро пожаловать в подземелье!</p>
+            </div>
+            <div class="controls">
+                <button class="control-button" onclick="movePlayer(0, -1)">Вверх</button>
+                <button class="control-button" onclick="movePlayer(0, 1)">Вниз</button>
+                <button class="control-button" onclick="movePlayer(-1, 0)">Влево</button>
+                <button class="control-button" onclick="movePlayer(1, 0)">Вправо</button>
+                <button class="control-button" onclick="recreateDungeon()">Пересоздать подземелье</button>
+            </div>
         </div>
         <div class="game-sidebar">
             <div class="game-info">
@@ -172,6 +211,7 @@
             <div class="game-info">
                 <h2>Текущая локация</h2>
                 <p>X: <span id="playerX">0</span>, Y: <span id="playerY">0</span></p>
+                <p>Чанк: (<span id="playerChunkX">0</span>, <span id="playerChunkY">0</span>)</p>
             </div>
             <div class="game-info">
                 <h2>Другие игроки</h2>
@@ -189,7 +229,6 @@
         // Supabase configuration
         const SUPABASE_URL = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
-        const WORLD_ID = 'world_1'; // Идентификатор для глобального состояния мира
 
         let supabase;
         let userId;
@@ -206,6 +245,8 @@
             name: 'Игрок',
             x: 0,
             y: 0,
+            chunkX: 0, // Координата чанка по X
+            chunkY: 0, // Координата чанка по Y
             health: 100,
             maxhealth: 100,
             attack: 10,
@@ -215,8 +256,8 @@
             inventory: []
         };
 
-        let map = []; // 2D array to represent the game map (shared)
-        let enemies = []; // Array to store enemy objects (shared)
+        let map = []; // 2D массив, представляющий карту игры (общий)
+        let enemies = []; // Массив для хранения объектов врагов (общий)
         let otherPlayers = [];
 
         // Canvas setup
@@ -234,10 +275,54 @@
         playerImage.onload = () => {
             console.log("Player image loaded successfully!");
             playerImage.isLoaded = true;
+            if (gameReady) {
+                drawGame();
+            }
         };
         playerImage.onerror = () => {
-            console.error("Failed to load player image.");
+            console.error("Failed to load player image. Using fallback square.");
             playerImage.isLoaded = false;
+            if (gameReady) {
+                drawGame();
+            }
+        };
+
+        // Wall image
+        const wallImage = new Image();
+        wallImage.src = 'https://avatars.mds.yandex.net/i?id=6a5d210fb5031e640a1b963ed342663f-2414590-images-thumbs&n=13';
+        wallImage.isLoaded = false;
+        wallImage.onload = () => {
+            console.log("Wall image loaded successfully!");
+            wallImage.isLoaded = true;
+            if (gameReady) {
+                drawGame();
+            }
+        };
+        wallImage.onerror = () => {
+            console.error("Failed to load wall image. Using fallback color.");
+            wallImage.isLoaded = false;
+            if (gameReady) {
+                drawGame();
+            }
+        };
+
+        // Goblin image
+        const goblinImage = new Image();
+        goblinImage.src = 'https://d3iuzwoiyg9qa8.cloudfront.net/webadmin/storage/public/airdrops/small-thumbnail/TfBu8Q0hjdEKPn7GBenK6U9RVXoM7khs0cC2XGjf.webp';
+        goblinImage.isLoaded = false;
+        goblinImage.onload = () => {
+            console.log("Goblin image loaded successfully!");
+            goblinImage.isLoaded = true;
+            if (gameReady) {
+                drawGame();
+            }
+        };
+        goblinImage.onerror = () => {
+            console.error("Failed to load goblin image. Using fallback red square.");
+            goblinImage.isLoaded = false;
+            if (gameReady) {
+                drawGame();
+            }
         };
 
         // UI elements
@@ -249,6 +334,8 @@
         const playerLevelEl = document.getElementById('playerLevel');
         const playerXEl = document.getElementById('playerX');
         const playerYEl = document.getElementById('playerY');
+        const playerChunkXEl = document.getElementById('playerChunkX'); // Новый элемент для отображения чанка X
+        const playerChunkYEl = document.getElementById('playerChunkY'); // Новый элемент для отображения чанка Y
         const inventoryListEl = document.getElementById('inventoryList');
         const messageLogEl = document.getElementById('messageLog');
         const otherPlayersListEl = document.getElementById('otherPlayersList');
@@ -257,7 +344,7 @@
          * Initializes Supabase and authenticates the user (anonymously).
          */
         async function initializeSupabase() {
-            loadingOverlay.style.display = 'flex'; // Show loading overlay
+            loadingOverlay.style.display = 'flex'; // Показать оверлей загрузки
             try {
                 supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                 console.log("Supabase client initialized.");
@@ -265,47 +352,42 @@
                 console.log("Anon Key (first 10 chars):", SUPABASE_ANON_KEY.substring(0, 10) + "...");
 
                 const authPromise = new Promise(async (resolve, reject) => {
-                    // This listener will catch both initial session and new sign-ins
                     supabase.auth.onAuthStateChange((event, session) => {
                         console.log("Auth state change event:", event);
                         if (session && session.user) {
                             resolve(session.user);
                         } else if (event === 'SIGNED_OUT') {
-                            // If signed out, we might want to reject or handle differently
-                            // For this game, we'll try to sign in anonymously again if needed.
                             console.log("User signed out, attempting anonymous sign-in if no session.");
                         }
                     });
 
-                    // First, try to get the current session
                     const { data: { session }, error: getSessionError } = await supabase.auth.getSession();
 
                     if (getSessionError) {
+                        console.error("DEBUG: Full getSessionError object:", getSessionError); // Детальное логирование ошибки
                         console.error("Ошибка получения сессии:", getSessionError);
                         logMessage("Ошибка получения сессии. Попытка анонимного входа...");
                         const { error: signInError } = await supabase.auth.signInAnonymously();
                         if (signInError) {
+                            console.error("DEBUG: Full signInError object:", signInError); // Детальное логирование ошибки
                             console.error("Критическая ошибка анонимного входа:", signInError);
                             logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
-                            reject(signInError); // Reject if anonymous sign-in also fails
+                            reject(signInError);
                         } else {
                             console.log("Анонимный вход успешно инициирован.");
-                            // onAuthStateChange will handle the resolution
                         }
                     } else if (!session) {
-                        // No existing session, try to sign in anonymously
                         console.log("Нет активной сессии. Попытка анонимного входа...");
                         const { error: signInError } = await supabase.auth.signInAnonymously();
                         if (signInError) {
+                            console.error("DEBUG: Full signInError object:", signInError); // Детальное логирование ошибки
                             console.error("Критическая ошибка анонимного входа:", signInError);
                             logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
-                            reject(signInError); // Reject if anonymous sign-in fails
+                            reject(signInError);
                         } else {
                             console.log("Анонимный вход успешно инициирован.");
-                            // onAuthStateChange will handle the resolution
                         }
                     } else {
-                        // Session exists, resolve immediately with user data
                         console.log("Существует активная сессия, пользователь:", session.user.id);
                         resolve(session.user);
                     }
@@ -319,13 +401,13 @@
                 logMessage(`Вы вошли как: ${player.name}`);
                 gameReady = true;
                 console.log("Calling setupGame...");
-                await setupGame(); // Now setupGame is guaranteed to run after authentication
+                await setupGame();
 
             } catch (error) {
                 console.error("Критическая ошибка инициализации Supabase:", error);
                 logMessage("Критическая ошибка подключения к игре. Пожалуйста, попробуйте позже.");
             } finally {
-                loadingOverlay.style.display = 'none'; // Hide loading overlay
+                loadingOverlay.style.display = 'none'; // Скрыть оверлей загрузки
             }
         }
 
@@ -349,6 +431,8 @@
             } else if (existingPlayer) {
                 player.x = existingPlayer.x;
                 player.y = existingPlayer.y;
+                player.chunkX = existingPlayer.chunkX || 0; // Загрузить chunkX, по умолчанию 0
+                player.chunkY = existingPlayer.chunkY || 0; // Загрузить chunkY, по умолчанию 0
                 player.health = existingPlayer.health;
                 player.maxhealth = existingPlayer.maxhealth;
                 player.attack = existingPlayer.attack;
@@ -357,13 +441,13 @@
                 player.level = existingPlayer.level;
                 logMessage("Ваш прогресс загружен.");
             } else {
-                await updatePlayerPositionInSupabase(); // Insert initial player state
+                await updatePlayerPositionInSupabase(); // Вставить начальное состояние игрока
                 logMessage("Новый профиль игрока создан.");
             }
 
             // 3. Set up real-time listeners
             listenForOtherPlayers();
-            listenForGameStateChanges(); // Listen for changes to map/enemies
+            listenForGameStateChanges(); // Слушать изменения состояния карты/врагов
 
             // 4. Initial draw and UI update
             drawGame();
@@ -373,61 +457,252 @@
         }
 
         /**
+         * Gets the current world ID based on player's chunk coordinates.
+         * @returns {string} Уникальный ID для текущего чанка мира.
+         */
+        function getCurrentWorldId() {
+            return `world_${player.chunkX}_${player.chunkY}`;
+        }
+
+        /**
          * Loads global game state (map and enemies) from Supabase, or creates it if not found.
          */
         async function loadOrCreateGameState() {
-            console.log("Attempting to load game state...");
+            console.log(`Attempting to load game state for chunk ${getCurrentWorldId()}...`);
             const { data, error } = await supabase
                 .from('game_state')
                 .select('*')
-                .eq('id', WORLD_ID)
+                .eq('id', getCurrentWorldId()) // Использовать динамический ID
                 .single();
 
-            if (error && error.code !== 'PGRST116') { // PGRST116 means "no rows found"
+            if (error && error.code !== 'PGRST116') { // PGRST116 означает "строки не найдены"
                 console.error("Ошибка загрузки глобального состояния игры:", error);
                 logMessage("Ошибка загрузки мира.");
-                // Fallback: initialize locally if loading fails
-                initializeMap();
+                // Fallback: инициализировать локально, если загрузка не удалась
+                initializeMap(); // Это теперь вызовет generateDungeon
                 spawnEnemies();
-                await updateGameStateInSupabase(); // Try to save the newly generated state
+                await updateGameStateInSupabase(); // Попытаться сохранить вновь сгенерированное состояние
             } else if (data) {
                 console.log("Global game state loaded:", data);
-                // Parse and load map and enemies
                 map = JSON.parse(data.map_data);
                 enemies = JSON.parse(data.enemies_data);
-                logMessage("Мир загружен.");
+                logMessage(`Мир ${getCurrentWorldId()} загружен.`);
             } else {
-                console.log("No existing game state found. Initializing new world...");
-                // No existing state, create a new one
-                initializeMap();
+                console.log(`No existing game state found for chunk ${getCurrentWorldId()}. Initializing new world...`);
+                initializeMap(); // Это теперь вызовет generateDungeon
                 spawnEnemies();
-                await updateGameStateInSupabase(); // Save the newly generated state
-                logMessage("Новый мир создан.");
+                await updateGameStateInSupabase(); // Сохранить вновь сгенерированное состояние
+                logMessage(`Новый мир ${getCurrentWorldId()} создан.`);
             }
         }
 
         /**
-         * Initializes the game map with walls and empty spaces.
-         * This function is now called only if no map data is found in Supabase.
+         * Initializes the game map with a procedural dungeon.
          */
         function initializeMap() {
-            map = []; // Ensure map is empty before filling
+            map = []; // Убедиться, что карта пуста перед заполнением
             for (let y = 0; y < MAP_HEIGHT; y++) {
                 map[y] = [];
                 for (let x = 0; x < MAP_WIDTH; x++) {
-                    map[y][x] = 'floor';
+                    map[y][x] = 'wall'; // Начать со всех стен
+                }
+            }
+            generateDungeon(); // Вызвать новую функцию генерации подземелья
+            ensureExits(); // Гарантировать выходы на границах чанка
+            console.log("Map initialized locally with dungeon:", map);
+        }
+
+        // --- New Dungeon Generation Logic ---
+        function generateDungeon() {
+            const rooms = [];
+            const NUM_ROOMS = Math.floor(Math.random() * 3) + 3; // 3-5 комнат
+            const MIN_ROOM_SIZE = 3;
+            const MAX_ROOM_SIZE = 7;
+
+            // Генерация комнат
+            for (let i = 0; i < NUM_ROOMS; i++) {
+                let room;
+                let overlaps;
+                let attempts = 0;
+                const maxAttempts = 100;
+
+                do {
+                    overlaps = false;
+                    const rw = Math.floor(Math.random() * (MAX_ROOM_SIZE - MIN_ROOM_SIZE + 1)) + MIN_ROOM_SIZE;
+                    const rh = Math.floor(Math.random() * (MAX_ROOM_SIZE - MIN_ROOM_SIZE + 1)) + MIN_ROOM_SIZE;
+                    const rx = Math.floor(Math.random() * (MAP_WIDTH - rw - 1)) + 1; // +1, чтобы избежать краев
+                    const ry = Math.floor(Math.random() * (MAP_HEIGHT - rh - 1)) + 1; // +1, чтобы избежать краев
+
+                    room = { x: rx, y: ry, width: rw, height: rh };
+
+                    // Проверка на пересечения с существующими комнатами
+                    for (const existingRoom of rooms) {
+                        if (
+                            room.x < existingRoom.x + existingRoom.width + 1 && // +1 для небольшого буфера
+                            room.x + room.width + 1 > existingRoom.x &&
+                            room.y < existingRoom.y + existingRoom.height + 1 &&
+                            room.y + room.height + 1 > existingRoom.y
+                        ) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                    attempts++;
+                    if (attempts > maxAttempts) {
+                        console.warn("Could not place room after many attempts.");
+                        break;
+                    }
+                } while (overlaps && attempts <= maxAttempts);
+
+                if (!overlaps) {
+                    rooms.push(room);
+                    // Выкопать комнату
+                    for (let y = room.y; y < room.y + room.height; y++) {
+                        for (let x = room.x; x < room.x + room.width; x++) {
+                            if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
+                                map[y][x] = 'floor';
+                            }
+                        }
+                    }
                 }
             }
 
-            for (let i = 0; i < (MAP_WIDTH * MAP_HEIGHT) / 10; i++) {
-                const wallX = Math.floor(Math.random() * MAP_WIDTH);
-                const wallY = Math.floor(Math.random() * MAP_HEIGHT);
-                if (map[wallY] && map[wallY][wallX] !== undefined && (wallX !== player.x || wallY !== player.y)) {
-                    map[wallY][wallX] = 'wall';
+            // Соединение комнат коридорами
+            for (let i = 0; i < rooms.length - 1; i++) {
+                const room1 = rooms[i];
+                const room2 = rooms[i + 1];
+
+                const center1 = { x: Math.floor(room1.x + room1.width / 2), y: Math.floor(room1.y + room1.height / 2) };
+                const center2 = { x: Math.floor(room2.x + room2.width / 2), y: Math.floor(room2.y + room2.height / 2) };
+
+                // Горизонтальный коридор
+                for (let x = Math.min(center1.x, center2.x); x <= Math.max(center1.x, center2.x); x++) {
+                    if (x >= 0 && x < MAP_WIDTH && center1.y >= 0 && center1.y < MAP_HEIGHT) {
+                        map[center1.y][x] = 'floor';
+                    }
+                }
+
+                // Вертикальный коридор
+                for (let y = Math.min(center1.y, center2.y); y <= Math.max(center1.y, center2.y); y++) {
+                    if (center2.x >= 0 && center2.x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
+                        map[y][center2.x] = 'floor';
+                    }
                 }
             }
-            console.log("Map initialized locally:", map);
+
+            // Убедиться, что игрок появляется на плитке пола
+            let playerSpawned = false;
+            for (const room of rooms) {
+                if (room.width > 0 && room.height > 0) {
+                    player.x = Math.floor(room.x + room.width / 2);
+                    player.y = Math.floor(room.y + room.height / 2);
+                    playerSpawned = true;
+                    break;
+                }
+            }
+            if (!playerSpawned) {
+                // Запасной вариант, если комнаты не были успешно размещены
+                player.x = Math.floor(MAP_WIDTH / 2);
+                player.y = Math.floor(MAP_HEIGHT / 2);
+                map[player.y][player.x] = 'floor'; // Убедиться, что место появления игрока - пол
+            }
         }
+
+        /**
+         * Ensures there is at least one exit (floor tile) on each of the four borders.
+         * Connects these exits to the dungeon interior.
+         */
+        function ensureExits() {
+            const borders = [
+                { edge: 'top', fixedCoord: 0, varyingCoord: 'x', range: MAP_WIDTH },
+                { edge: 'bottom', fixedCoord: MAP_HEIGHT - 1, varyingCoord: 'x', range: MAP_WIDTH },
+                { edge: 'left', fixedCoord: 0, varyingCoord: 'y', range: MAP_HEIGHT },
+                { edge: 'right', fixedCoord: MAP_WIDTH - 1, varyingCoord: 'y', range: MAP_HEIGHT }
+            ];
+
+            borders.forEach(border => {
+                let exitCreated = false;
+                let attempts = 0;
+                const maxAttempts = 50;
+
+                while (!exitCreated && attempts < maxAttempts) {
+                    const pos = Math.floor(Math.random() * border.range);
+                    let ex, ey;
+
+                    if (border.varyingCoord === 'x') {
+                        ex = pos;
+                        ey = border.fixedCoord;
+                    } else {
+                        ex = border.fixedCoord;
+                        ey = pos;
+                    }
+
+                    // Проверить, является ли уже пол
+                    if (map[ey][ex] === 'floor') {
+                        exitCreated = true;
+                        break;
+                    }
+
+                    // Попытаться превратить в пол и соединить с ближайшей комнатой/коридором
+                    map[ey][ex] = 'floor';
+                    logMessage(`Создан выход на ${border.edge} границе в (${ex}, ${ey}).`);
+
+                    // Простая попытка соединить с ближайшим полом внутри
+                    // (Можно улучшить с помощью более сложного алгоритма, но для начала достаточно)
+                    let connected = false;
+                    for (let y = 1; y < MAP_HEIGHT - 1; y++) {
+                        for (let x = 1; x < MAP_WIDTH - 1; x++) {
+                            if (map[y][x] === 'floor') {
+                                // Создать простой коридор к этой плитке пола
+                                if (border.varyingCoord === 'x') { // Горизонтальный коридор
+                                    for (let cy = Math.min(ey, y); cy <= Math.max(ey, y); cy++) {
+                                        if (cy >= 0 && cy < MAP_HEIGHT && ex >= 0 && ex < MAP_WIDTH) map[cy][ex] = 'floor';
+                                    }
+                                    for (let cx = Math.min(ex, x); cx <= Math.max(ex, x); cx++) {
+                                        if (ey >= 0 && ey < MAP_HEIGHT && cx >= 0 && cx < MAP_WIDTH) map[y][cx] = 'floor';
+                                    }
+                                } else { // Вертикальный коридор
+                                    for (let cx = Math.min(ex, x); cx <= Math.max(ex, x); cx++) {
+                                        if (ey >= 0 && ey < MAP_HEIGHT && cx >= 0 && cx < MAP_WIDTH) map[ey][cx] = 'floor';
+                                    }
+                                    for (let cy = Math.min(ey, y); cy <= Math.max(ey, y); cy++) {
+                                        if (cy >= 0 && cy < MAP_HEIGHT && x >= 0 && x < MAP_WIDTH) map[cy][x] = 'floor';
+                                    }
+                                }
+                                connected = true;
+                                break;
+                            }
+                        }
+                        if (connected) break;
+                    }
+
+                    if (connected) {
+                        exitCreated = true;
+                    } else {
+                        // Если не удалось соединить, возможно, это был изолированный выход,
+                        // попробуем еще раз на другом месте.
+                        map[ey][ex] = 'wall'; // Вернуть стену, если не удалось соединить
+                    }
+                    attempts++;
+                }
+                if (!exitCreated) {
+                    console.warn(`Не удалось создать выход на ${border.edge} границе.`);
+                    // В крайнем случае, просто сделать случайную плитку пола на границе
+                    const pos = Math.floor(Math.random() * border.range);
+                    let ex, ey;
+                    if (border.varyingCoord === 'x') {
+                        ex = pos;
+                        ey = border.fixedCoord;
+                    } else {
+                        ex = border.fixedCoord;
+                        ey = pos;
+                    }
+                    map[ey][ex] = 'floor';
+                    logMessage(`Принудительно создан выход на ${border.edge} границе в (${ex}, ${ey}).`);
+                }
+            });
+        }
+        // --- End Dungeon Generation Logic ---
 
         /**
          * Spawns enemies randomly on the map.
@@ -458,11 +733,9 @@
                         attack: 8,
                         defense: 2,
                         xpValue: 10,
-                        name: 'Гоблин'
+                        name: 'Гоблин',
+                        id: crypto.randomUUID() // Добавить уникальный ID для врагов
                     });
-                    // Note: We don't update map[enemyY][enemyX] = 'enemy' here.
-                    // The map_data in Supabase will only store 'floor'/'wall'.
-                    // Enemy positions are tracked separately in enemies_data.
                 }
             }
             console.log("Enemies spawned locally:", enemies);
@@ -472,7 +745,7 @@
          * Gets an enemy object at the given coordinates.
          * @param {number} x - X coordinate.
          * @param {number} y - Y coordinate.
-         * @returns {object|null} The enemy object if found, otherwise null.
+         * @returns {object|null} Объект врага, если найден, иначе null.
          */
         function getEnemyAt(x, y) {
             return enemies.find(enemy => enemy.x === x && enemy.y === y);
@@ -480,7 +753,7 @@
 
         /**
          * Logs a message to the game message log.
-         * @param {string} message - The message to log.
+         * @param {string} message - Сообщение для логирования.
          */
         function logMessage(message) {
             const p = document.createElement('p');
@@ -502,6 +775,8 @@
             playerLevelEl.textContent = player.level;
             playerXEl.textContent = player.x;
             playerYEl.textContent = player.y;
+            playerChunkXEl.textContent = player.chunkX; // Обновить отображение чанка X
+            playerChunkYEl.textContent = player.chunkY; // Обновить отображение чанка Y
 
             inventoryListEl.innerHTML = '';
             if (player.inventory.length === 0) {
@@ -524,7 +799,7 @@
             } else {
                 otherPlayers.forEach(otherPlayer => {
                     const li = document.createElement('li');
-                    li.textContent = `${otherPlayer.name} (Уровень ${otherPlayer.level}) - X:${otherPlayer.x}, Y:${otherPlayer.y}`;
+                    li.textContent = `${otherPlayer.name} (Уровень ${otherPlayer.level}) - X:${otherPlayer.x}, Y:${otherPlayer.y}, Чанк: (${otherPlayer.chunkX || 0}, ${otherPlayer.chunkY || 0})`;
                     otherPlayersListEl.appendChild(li);
                 });
             }
@@ -545,12 +820,19 @@
                     }
 
                     const tileType = map[y][x];
-                    let color = '#333';
+                    let color = '#333'; // Default floor color
                     if (tileType === 'wall') {
-                        color = '#666';
+                        if (wallImage.isLoaded) {
+                            ctx.drawImage(wallImage, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        } else {
+                            color = '#666'; // Fallback wall color
+                            ctx.fillStyle = color;
+                            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        }
+                    } else {
+                        ctx.fillStyle = color;
+                        ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                     }
-                    ctx.fillStyle = color;
-                    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 
                     ctx.strokeStyle = '#222';
                     ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
@@ -559,31 +841,35 @@
 
             // Draw enemies
             enemies.forEach(enemy => {
-                ctx.fillStyle = 'red';
-                ctx.fillRect(enemy.x * TILE_SIZE + TILE_SIZE / 4, enemy.y * TILE_SIZE + TILE_SIZE / 4, TILE_SIZE / 2, TILE_SIZE / 2);
+                if (goblinImage.isLoaded) {
+                    ctx.drawImage(goblinImage, enemy.x * TILE_SIZE, enemy.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                } else {
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(enemy.x * TILE_SIZE + TILE_SIZE / 4, enemy.y * TILE_SIZE + TILE_SIZE / 4, TILE_SIZE / 2, TILE_SIZE / 2);
+                }
             });
 
-            // Draw other players
-            otherPlayers.forEach(otherPlayer => {
-                if (otherPlayer.id === player.id) return;
+            // Draw players (current and others)
+            const allPlayersToDraw = [player, ...otherPlayers];
+            allPlayersToDraw.forEach(p => {
+                // Только рисовать игроков в текущем чанке
+                if (p.chunkX === player.chunkX && p.chunkY === player.chunkY) {
+                    let playerColor = 'blue'; // Default for current player
+                    if (p.id !== player.id) {
+                        playerColor = 'green'; // Default for other players
+                    }
 
-                ctx.fillStyle = 'green';
-                ctx.fillRect(otherPlayer.x * TILE_SIZE, otherPlayer.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                ctx.fillStyle = 'white';
-                ctx.font = '10px Inter';
-                ctx.fillText(otherPlayer.name, otherPlayer.x * TILE_SIZE, otherPlayer.y * TILE_SIZE - 5);
+                    if (playerImage.isLoaded) {
+                        ctx.drawImage(playerImage, p.x * TILE_SIZE, p.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    } else {
+                        ctx.fillStyle = playerColor;
+                        ctx.fillRect(p.x * TILE_SIZE, p.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    }
+                    ctx.fillStyle = 'white';
+                    ctx.font = '10px Inter';
+                    ctx.fillText(p.name, p.x * TILE_SIZE, p.y * TILE_SIZE - 5);
+                }
             });
-
-            // Draw current player
-            if (playerImage.isLoaded) {
-                ctx.drawImage(playerImage, player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-            } else {
-                ctx.fillStyle = 'blue';
-                ctx.fillRect(player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-            }
-            ctx.fillStyle = 'white';
-            ctx.font = '10px Inter';
-            ctx.fillText(player.name, player.x * TILE_SIZE, player.y * TILE_SIZE - 5);
         }
 
         /**
@@ -602,6 +888,8 @@
                         name: player.name,
                         x: player.x,
                         y: player.y,
+                        chunkX: player.chunkX, // Сохранить chunkX
+                        chunkY: player.chunkY, // Сохранить chunkY
                         health: player.health,
                         maxhealth: player.maxhealth,
                         attack: player.attack,
@@ -617,7 +905,8 @@
                 } else {
                     // console.log("Player data saved to Supabase:", data);
                 }
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Исключение при записи данных игрока в Supabase:", e);
                 logMessage("Ошибка сохранения вашего прогресса.");
             }
@@ -635,7 +924,7 @@
                 const { data, error } = await supabase
                     .from('game_state')
                     .upsert({
-                        id: WORLD_ID,
+                        id: getCurrentWorldId(), // Использовать динамический ID
                         map_data: JSON.stringify(map),
                         enemies_data: JSON.stringify(enemies),
                         updated_at: new Date().toISOString()
@@ -645,7 +934,7 @@
                     console.error("Ошибка записи глобального состояния игры в Supabase:", error);
                     logMessage("Ошибка сохранения состояния мира.");
                 } else {
-                    console.log("Global game state saved to Supabase.");
+                    console.log(`Global game state for chunk ${getCurrentWorldId()} saved to Supabase.`);
                 }
             } catch (e) {
                 console.error("Исключение при записи глобального состояния игры в Supabase:", e);
@@ -662,24 +951,47 @@
                 return;
             }
 
+            // Отписаться от предыдущего канала, если существует (для всех игроков)
+            // Внимание: для "players_changes" мы не фильтруем по чанку,
+            // потому что нам нужно знать о игроках во всех чанках для отображения их на UI
+            // и для возможного взаимодействия, когда они переходят в наш чанк.
+            // Фильтрация будет происходить при отрисовке (drawGame) и обновлении UI (updateUI).
+            if (supabase.channel('players_changes')) {
+                supabase.channel('players_changes').unsubscribe();
+            }
+
+
             supabase
                 .channel('players_changes')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
                     console.log('Player change received!', payload);
                     if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                         const changedPlayer = payload.new;
+                        // Если это наш собственный игрок, обновить его данные, но не добавлять в otherPlayers
                         if (changedPlayer.id === player.id) {
+                            player.x = changedPlayer.x;
+                            player.y = changedChangedPlayer.y;
+                            player.chunkX = changedPlayer.chunkX;
+                            player.chunkY = changedPlayer.chunkY;
+                            player.health = changedPlayer.health;
+                            player.maxhealth = changedPlayer.maxhealth;
+                            player.attack = changedPlayer.attack;
+                            player.defense = changedPlayer.defense;
+                            player.xp = changedPlayer.xp;
+                            player.level = changedPlayer.level;
+                            // Не вызываем drawGame/updateUI здесь, так как это будет сделано после movePlayer
                             return;
                         }
+
                         const existingIndex = otherPlayers.findIndex(p => p.id === changedPlayer.id);
                         if (existingIndex > -1) {
-                            otherPlayers[existingIndex] = changedPlayer;
+                            otherPlayers[existingIndex] = changedPlayer; // Обновить существующего игрока
                         } else {
-                            otherPlayers.push(changedPlayer);
+                            otherPlayers.push(changedPlayer); // Добавить нового игрока
                         }
                     } else if (payload.eventType === 'DELETE') {
                         const deletedPlayerId = payload.old.id;
-                        otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId);
+                        otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId); // Удалить удаленного игрока
                     }
                     drawGame();
                     updateUI();
@@ -698,9 +1010,14 @@
                 return;
             }
 
+            // Отписаться от предыдущего канала, если существует
+            if (supabase.channel('game_state_changes')) {
+                supabase.channel('game_state_changes').unsubscribe();
+            }
+
             supabase
                 .channel('game_state_changes')
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'game_state', filter: `id=eq.${WORLD_ID}` }, payload => {
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'game_state', filter: `id=eq.${getCurrentWorldId()}` }, payload => { // Фильтровать по ID текущего чанка
                     console.log('Game state change received!', payload);
                     if (payload.eventType === 'UPDATE') {
                         const updatedState = payload.new;
@@ -712,47 +1029,82 @@
                 })
                 .subscribe();
 
-            logMessage("Подписка на состояние мира активна.");
+            logMessage(`Подписка на состояние мира ${getCurrentWorldId()} активна.`);
         }
 
 
         /**
          * Handles player movement.
-         * @param {number} dx - Change in X coordinate.
-         * @param {number} dy - Change in Y coordinate.
+         * @param {number} dx - Изменение по X-координате.
+         * @param {number} dy - Изменение по Y-координате.
          */
         async function movePlayer(dx, dy) {
             if (!gameReady) return;
 
-            const newX = player.x + dx;
-            const newY = player.y + dy;
+            let newX = player.x + dx;
+            let newY = player.y + dy;
+            let newChunkX = player.chunkX;
+            let newChunkY = player.chunkY;
+            let transitionOccurred = false;
 
-            // Check bounds
-            if (newX < 0 || newX >= MAP_WIDTH || newY < 0 || newY >= MAP_HEIGHT) {
-                logMessage('Вы не можете идти в этом направлении.');
-                return;
+            // Проверка на переход между чанками мира
+            if (newX < 0) {
+                newChunkX--;
+                newX = MAP_WIDTH - 1;
+                transitionOccurred = true;
+            } else if (newX >= MAP_WIDTH) {
+                newChunkX++;
+                newX = 0;
+                transitionOccurred = true;
             }
 
-            // Check for walls (from shared map data)
+            if (newY < 0) {
+                newChunkY--;
+                newY = MAP_HEIGHT - 1;
+                transitionOccurred = true;
+            } else if (newY >= MAP_HEIGHT) {
+                newChunkY++;
+                newY = 0;
+                transitionOccurred = true;
+            }
+
+            // Если произошел переход, обновить чанк игрока и загрузить новое состояние
+            if (transitionOccurred) {
+                player.chunkX = newChunkX;
+                player.chunkY = newChunkY;
+                player.x = newX;
+                player.y = newY;
+                logMessage(`Вы перешли в новую локацию: (${player.chunkX}, ${player.chunkY}).`);
+                await updatePlayerPositionInSupabase(); // Сохранить новую позицию игрока (включая чанк)
+                await loadOrCreateGameState(); // Загрузить карту и врагов нового чанка
+                listenForGameStateChanges(); // Переподписаться на состояние нового чанка
+                // listenForOtherPlayers() не требует переподписки, так как она слушает все изменения игроков
+                drawGame();
+                updateUI();
+                return; // Перемещение обработано переходом
+            }
+
+            // Если перехода нет, продолжить перемещение в текущем чанке
+            // Проверка на стены (из общих данных карты)
             if (map[newY][newX] === 'wall') {
                 logMessage('Стена блокирует ваш путь.');
                 return;
             }
 
-            // Check for enemies (from shared enemies data)
+            // Проверка на врагов (из общих данных врагов)
             const targetEnemy = getEnemyAt(newX, newY);
             if (targetEnemy) {
                 logMessage(`Вы атакуете ${targetEnemy.name}!`);
                 combat(player, targetEnemy);
-                return; // Don't move if attacking
+                return; // Не двигаться при атаке
             }
 
-            // If no obstacles, move the player
+            // Если препятствий нет, переместить игрока
             player.x = newX;
             player.y = newY;
-            logMessage(`Вы переместились на (${player.x}, ${player.y}).`);
+            logMessage(`Вы переместились на (${player.x}, ${player.y}) в текущей локации.`);
 
-            // Update player position in Supabase
+            // Обновить позицию игрока в Supabase
             await updatePlayerPositionInSupabase();
 
             drawGame();
@@ -761,8 +1113,8 @@
 
         /**
          * Handles combat between attacker and defender.
-         * @param {object} attacker - The attacking entity (player or enemy).
-         * @param {object} defender - The defending entity (player or enemy).
+         * @param {object} attacker - Атакующая сущность (игрок или враг).
+         * @param {object} defender - Защищающаяся сущность (игрок или враг).
          */
         async function combat(attacker, defender) {
             let damage = Math.max(0, attacker.attack - defender.defense);
@@ -773,23 +1125,23 @@
                 logMessage(`${defender.name} побежден!`);
                 if (defender === player) {
                     logMessage('Вы были побеждены. Игра окончена!');
-                    // Implement game over logic (e.g., reset game, show message)
+                    // Реализовать логику окончания игры (например, перезапуск игры, показ сообщения)
                 } else {
-                    // Enemy defeated - update global enemies state
+                    // Враг побежден - обновить глобальное состояние врагов
                     player.xp += defender.xpValue;
                     logMessage(`Вы получили ${defender.xpValue} опыта.`);
-                    enemies = enemies.filter(e => e !== defender); // Remove defeated enemy
-                    await updateGameStateInSupabase(); // Save updated enemies
+                    enemies = enemies.filter(e => e.id !== defender.id); // Фильтровать по ID для корректного удаления
+                    await updateGameStateInSupabase(); // Сохранить обновленных врагов
                     checkLevelUp();
                 }
             } else {
-                // If defender is still alive, they might retaliate (if it's turn-based)
+                // Если защитник все еще жив, он может ответить (если это пошаговая игра)
                 if (defender === player) {
-                    // Player was attacked, no retaliation in this simple model yet
+                    // Игрок был атакован, ответной атаки в этой простой модели пока нет
                 } else {
-                    // Enemy retaliates
+                    // Враг отвечает
                     logMessage(`${defender.name} отвечает!`);
-                    combat(defender, attacker); // Enemy attacks player back
+                    combat(defender, attacker); // Враг атакует игрока в ответ
                 }
             }
             drawGame();
@@ -810,13 +1162,13 @@
                 player.defense += 1;
                 logMessage(`Поздравляем! Вы достигли уровня ${player.level}!`);
                 updateUI();
-                updatePlayerPositionInSupabase(); // Update stats in Supabase
+                updatePlayerPositionInSupabase(); // Обновить статистику в Supabase
             }
         }
 
         /**
          * Handles keyboard input for player movement.
-         * @param {KeyboardEvent} event - The keyboard event.
+         * @param {KeyboardEvent} event - Событие клавиатуры.
          */
         function handleKeyDown(event) {
             switch (event.key) {
@@ -839,39 +1191,26 @@
             }
         }
 
+        /**
+         * Recreates the current dungeon chunk.
+         */
+        async function recreateDungeon() {
+            if (!gameReady) {
+                console.warn("Game not ready for dungeon recreation.");
+                return;
+            }
+            logMessage('Пересоздание подземелья...');
+            initializeMap(); // Сгенерировать новое подземелье для текущего чанка
+            spawnEnemies(); // Сгенерировать новых врагов для текущего чанка
+            await updateGameStateInSupabase(); // Сохранить новое состояние в Supabase
+            drawGame();
+            updateUI();
+            logMessage('Подземелье пересоздано!');
+            console.log(`Dungeon for chunk ${getCurrentWorldId()} recreated.`);
+        }
+
         // Initialize Supabase and start game on window load
         window.onload = initializeSupabase;
     </script>
 </body>
 </html>
-```
-
-### **Пожалуйста, сделайте следующее, чтобы мы могли точно определить проблему:**
-
-1.  **Повторное выполнение SQL-скрипта (критически важно):**
-    * Пожалуйста, убедитесь, что вы снова выполнили **весь SQL-скрипт** из предыдущего сообщения (тот, что содержит максимально открытые RLS-политики) в вашем "SQL Editor" в консоли Supabase. Это гарантирует, что все политики применены корректно.
-
-2.  **Проверка настроек Supabase (ключевые моменты):**
-    * **URL и ключ API:** В консоли Supabase перейдите в "Project Settings" -> "API". **Скопируйте** `URL` и `Project API key (public)` оттуда и **вставьте их напрямую** в переменные `SUPABASE_URL` и `SUPABASE_ANON_KEY` в вашем JavaScript-коде. Это исключит любые опечатки.
-    * **Настройки аутентификации:** В консоли Supabase перейдите в "Authentication" -> "Settings". Убедитесь, что опция **"Enable anonymous signups" (или "Анонимная регистрация") включена**.
-    * **Настройки Realtime:** В консоли Supabase перейдите в "Database" -> "Realtime". Убедитесь, что для таблиц `players` и `game_state` включен Realtime (должны быть в списке "Enabled tables"). Если их там нет, добавьте их.
-
-3.  **Скриншоты политик RLS (это очень поможет):**
-    * Перейдите в "Table Editor" в Supabase.
-    * Выберите таблицу `players`. Сделайте скриншот вкладки "Policies".
-    * Выберите таблицу `game_state`. Сделайте скриншот вкладки "Policies".
-    * **Пожалуйста, приложите эти скриншоты к вашему следующему сообщению.** Это позволит мне точно увидеть, как настроены ваши политики, и выявить любые несоответствия.
-
-4.  **Детальная информация об ошибке `406 Not Acceptable` из браузера:**
-    * Когда вы видите ошибку `406 Not Acceptable` в консоли браузера, пожалуйста, перейдите на вкладку "Network" (Сеть).
-    * Найдите запрос, который вернул `406`. Он будет красным или выделен.
-    * Нажмите на этот запрос.
-    * Сделайте скриншот вкладок **"Headers"** и **"Response"** для этого конкретного запроса.
-    * **Приложите эти скриншоты.** Это даст нам точную информацию о том, почему Supabase отклоняет запрос.
-
-5.  **Проверка данных в таблицах Supabase:**
-    * После запуска игры, перейдите в "Table Editor" в Supabase.
-    * Откройте таблицу `players`. Видите ли вы записи для обоих игроков?
-    * Откройте таблицу `game_state`. Есть ли там запись с `id` = `world_1`? Содержат ли `map_data` и `enemies_data` корректные JSON-строки?
-
-Эти шаги, особенно предоставление скриншотов и детальной информации об ошибке 406, критически важны для дальнейшей отлад

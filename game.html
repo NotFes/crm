@@ -161,22 +161,16 @@
     </div>
 
     <script type="module">
-        // Firebase imports
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // Supabase imports
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-        // Global Firebase variables (provided by Canvas environment)
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // Supabase configuration (from your provided details)
+        const SUPABASE_URL = 'https://kbjlqmzeclrtowtygbvu.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiamxxbXplY2xydG93dHlnYnZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc4NTU2ODksImV4cCI6MjA2MzQzMTY4OX0.17nwxPRZnSMzwSbtAo83bxFEFWP5rdhjhUNuxxLLGP8';
 
-        // Firebase instances
-        let app;
-        let db;
-        let auth;
-        let userId;
-        let gameReady = false; // Flag to ensure Firebase is initialized and authenticated
+        let supabase;
+        let userId; // This will now store the Supabase auth.uid()
+        let gameReady = false; // Flag to ensure Supabase is initialized and user ID is set
 
         // Game configuration
         const TILE_SIZE = 40; // Size of each tile in pixels
@@ -185,12 +179,12 @@
 
         // Game state
         let player = {
-            id: '', // Will be set to userId
+            id: '', // Will be set to Supabase auth.uid()
             name: 'Игрок',
             x: 0,
             y: 0,
             health: 100,
-            maxHealth: 100,
+            maxhealth: 100, // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
             attack: 10,
             defense: 5,
             xp: 0,
@@ -220,8 +214,7 @@
         };
         playerImage.onerror = () => {
             console.error("Failed to load player image.");
-            // Fallback to drawing a square if image fails to load
-            playerImage.isLoaded = false;
+            playerImage.isLoaded = false; // Mark as failed
         };
         playerImage.isLoaded = false; // Initial state
 
@@ -236,50 +229,107 @@
         const playerYEl = document.getElementById('playerY');
         const inventoryListEl = document.getElementById('inventoryList');
         const messageLogEl = document.getElementById('messageLog');
-        const otherPlayersListEl = document.getElementById('otherPlayersList');
+        const otherPlayersListEl = document.getElementById('otherPlayersList'); // <--- ИЗМЕНЕНО: Исправлено присваивание
 
         /**
-         * Initializes Firebase and authenticates the user.
+         * Initializes Supabase and authenticates the user (anonymously).
          */
-        async function initializeFirebase() {
+        async function initializeSupabase() {
             try {
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
+                supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log("Supabase client initialized.");
+                console.log("URL:", SUPABASE_URL);
+                console.log("Anon Key (first 10 chars):", SUPABASE_ANON_KEY.substring(0, 10) + "...");
 
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
+                // This listener will handle setting userId and calling setupGame
+                // once authentication is successful, whether from a new sign-in
+                // or an existing session.
+                supabase.auth.onAuthStateChange(async (event, session) => {
+                    console.log("Auth state change event:", event);
+                    if (session && session.user) {
+                        userId = session.user.id;
                         player.id = userId;
-                        player.name = `Игрок ${userId.substring(0, 6)}`; // Shorten for display
-                        playerIDEl.textContent = userId; // Display full ID
-                        logMessage(`Вы вошли как: ${userId}`);
-                        gameReady = true;
-                        await setupGame(); // Setup game after auth
-                    } else {
-                        logMessage('Попытка анонимного входа...');
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
+                        player.name = `Игрок ${userId.substring(0, 6)}`;
+                        playerIDEl.textContent = userId;
+
+                        logMessage(`Вы вошли как: ${player.name}`);
+                        if (!gameReady) { // Only call setupGame once
+                            gameReady = true;
+                            await setupGame();
                         }
+                    } else if (event === 'SIGNED_OUT') {
+                        logMessage('Вы вышли из системы.');
+                        gameReady = false;
+                        userId = null;
+                        // Optionally handle game state reset or re-login UI
                     }
                 });
+
+                // Attempt to get the current session or sign in anonymously
+                const { data: { session }, error: getSessionError } = await supabase.auth.getSession();
+                if (getSessionError) {
+                    console.error("Ошибка получения сессии:", getSessionError);
+                    logMessage("Ошибка получения сессии. Попытка анонимного входа...");
+                    const { error: signInError } = await supabase.auth.signInAnonymously();
+                    if (signInError) {
+                        console.error("Ошибка анонимного входа:", signInError);
+                        logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
+                    }
+                } else if (!session) {
+                    // No existing session, try to sign in anonymously
+                    console.log("Нет активной сессии. Попытка анонимного входа...");
+                    const { error: signInError } = await supabase.auth.signInAnonymously();
+                    if (signInError) {
+                        console.error("Ошибка анонимного входа:", signInError);
+                        logMessage("Ошибка входа в игру. Пожалуйста, проверьте URL и ключ Supabase, а также настройки RLS.");
+                    }
+                } else {
+                    // Session exists, onAuthStateChange will handle it.
+                    console.log("Существует активная сессия.");
+                }
+
             } catch (error) {
-                console.error("Ошибка инициализации Firebase или аутентификации:", error);
-                logMessage("Ошибка подключения к игре. Пожалуйста, попробуйте позже.");
+                console.error("Критическая ошибка инициализации Supabase:", error);
+                logMessage("Критическая ошибка подключения к игре. Пожалуйста, попробуйте позже.");
             }
         }
 
         /**
-         * Sets up the game state and listeners after Firebase is ready.
+         * Sets up the game state and listeners after Supabase is ready.
          */
         async function setupGame() {
             initializeMap();
             spawnEnemies(); // Enemies are local for now
-            await updatePlayerPositionInFirestore(); // Save initial player state
+
+            // Fetch existing player data if it exists, otherwise insert new
+            const { data: existingPlayer, error: fetchError } = await supabase
+                .from('players')
+                .select('*')
+                .eq('id', player.id)
+                .single();
+
+            if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 means "no rows found"
+                console.error("Ошибка загрузки данных игрока:", fetchError);
+                logMessage("Ошибка загрузки вашего прогресса.");
+            } else if (existingPlayer) {
+                // Load existing player data
+                player.x = existingPlayer.x;
+                player.y = existingPlayer.y;
+                player.health = existingPlayer.health;
+                player.maxhealth = existingPlayer.maxhealth; // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
+                player.attack = existingPlayer.attack;
+                player.defense = existingPlayer.defense;
+                player.xp = existingPlayer.xp;
+                player.level = existingPlayer.level;
+                logMessage("Ваш прогресс загружен.");
+            } else {
+                // Insert new player data if not found
+                await updatePlayerPositionInSupabase(); // This will insert the initial player state
+                logMessage("Новый профиль игрока создан.");
+            }
+
             listenForOtherPlayers();
-            drawGame(); // Ensure drawGame is called after map is initialized
+            drawGame();
             updateUI();
             document.addEventListener('keydown', handleKeyDown);
             logMessage('Используйте клавиши WASD или стрелки для перемещения.');
@@ -433,6 +483,9 @@
 
             // Draw other players
             otherPlayers.forEach(otherPlayer => {
+                // Ensure we don't draw the current player as an "other player"
+                if (otherPlayer.id === player.id) return;
+
                 ctx.fillStyle = 'green'; // Other player color
                 ctx.fillRect(otherPlayer.x * TILE_SIZE, otherPlayer.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                 ctx.fillStyle = 'white';
@@ -454,58 +507,93 @@
         }
 
         /**
-         * Updates the current player's data in Firestore.
+         * Updates the current player's data in Supabase.
          */
-        async function updatePlayerPositionInFirestore() {
-            if (!gameReady || !userId) {
-                console.warn("Game not ready or userId not available for Firestore update.");
+        async function updatePlayerPositionInSupabase() {
+            if (!gameReady || !supabase || !player.id) {
+                console.warn("Game not ready, Supabase client not available, or player ID not set for update.");
                 return;
             }
             try {
-                const playerDocRef = doc(db, `artifacts/${appId}/public/data/players`, userId);
-                await setDoc(playerDocRef, {
-                    id: player.id,
-                    name: player.name,
-                    x: player.x,
-                    y: player.y,
-                    health: player.health,
-                    maxHealth: player.maxHealth,
-                    attack: player.attack,
-                    defense: player.defense,
-                    xp: player.xp,
-                    level: player.level,
-                    // Inventory is not synchronized for simplicity in this step
-                }, { merge: true }); // Use merge to only update changed fields
+                const { data, error } = await supabase
+                    .from('players')
+                    .upsert({
+                        id: player.id,
+                        name: player.name,
+                        x: player.x,
+                        y: player.y,
+                        health: player.health,
+                        maxhealth: player.maxhealth, // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
+                        attack: player.attack,
+                        defense: player.defense,
+                        xp: player.xp,
+                        level: player.level,
+                        updated_at: new Date().toISOString() // Update timestamp
+                    }, { onConflict: 'id' }); // Conflict on 'id' means update if exists, insert if not
+
+                if (error) {
+                    console.error("Ошибка записи данных игрока в Supabase:", error);
+                    logMessage("Ошибка сохранения вашего прогресса.");
+                } else {
+                    // console.log("Player data saved to Supabase:", data);
+                }
             } catch (e) {
-                console.error("Ошибка записи данных игрока в Firestore:", e);
+                console.error("Исключение при записи данных игрока в Supabase:", e);
                 logMessage("Ошибка сохранения вашего прогресса.");
             }
         }
 
         /**
-         * Listens for real-time updates of other players from Firestore.
+         * Listens for real-time updates of other players from Supabase.
          */
         function listenForOtherPlayers() {
-            if (!gameReady || !userId) {
-                console.warn("Game not ready or userId not available for listening to other players.");
+            if (!gameReady || !supabase || !player.id) {
+                console.warn("Game not ready, Supabase client not available, or player ID not set for listening to other players.");
                 return;
             }
-            const playersCollectionRef = collection(db, `artifacts/${appId}/public/data/players`);
-            // Query to get all players except the current one
-            const q = query(playersCollectionRef, where("id", "!=", userId));
 
-            onSnapshot(q, (snapshot) => {
-                const updatedPlayers = [];
-                snapshot.forEach((doc) => {
-                    updatedPlayers.push(doc.data());
+            // Initial fetch of all players
+            supabase
+                .from('players')
+                .select('*')
+                .then(({ data, error }) => {
+                    if (error) {
+                        console.error("Ошибка при получении начальных данных игроков:", error);
+                        logMessage("Ошибка загрузки начальных данных других игроков.");
+                    } else {
+                        otherPlayers = data.filter(p => p.id !== player.id);
+                        drawGame();
+                        updateUI();
+                    }
                 });
-                otherPlayers = updatedPlayers;
-                drawGame();
-                updateUI();
-            }, (error) => {
-                console.error("Ошибка при получении данных других игроков:", error);
-                logMessage("Ошибка загрузки данных других игроков.");
-            });
+
+            // Real-time subscription for changes
+            supabase
+                .channel('players_changes') // You can name your channel
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
+                    // console.log('Change received!', payload);
+                    if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                        const changedPlayer = payload.new;
+                        if (changedPlayer.id === player.id) {
+                            // This is the current player's own update, ignore for otherPlayers list
+                            return;
+                        }
+                        const existingIndex = otherPlayers.findIndex(p => p.id === changedPlayer.id);
+                        if (existingIndex > -1) {
+                            otherPlayers[existingIndex] = changedPlayer; // Update existing player
+                        } else {
+                            otherPlayers.push(changedPlayer); // Add new player
+                        }
+                    } else if (payload.eventType === 'DELETE') {
+                        const deletedPlayerId = payload.old.id;
+                        otherPlayers = otherPlayers.filter(p => p.id !== deletedPlayerId); // Remove deleted player
+                    }
+                    drawGame();
+                    updateUI();
+                })
+                .subscribe();
+
+            logMessage("Подписка на других игроков активна.");
         }
 
         /**
@@ -544,8 +632,8 @@
             player.y = newY;
             logMessage(`Вы переместились на (${player.x}, ${player.y}).`);
 
-            // Update player position in Firestore
-            await updatePlayerPositionInFirestore();
+            // Update player position in Supabase
+            await updatePlayerPositionInSupabase();
 
             drawGame();
             updateUI();
@@ -553,7 +641,7 @@
 
         /**
          * Handles combat between attacker and defender.
-         * @param {object} attacker - The attacking entity (player or enemy).
+         * @param {object} attacker - The attacking entity (player or inemy).
          * @param {object} defender - The defending entity (player or enemy).
          */
         function combat(attacker, defender) {
@@ -597,13 +685,13 @@
             if (player.xp >= xpNeededForNextLevel) {
                 player.level++;
                 player.xp -= xpNeededForNextLevel; // Carry over excess XP
-                player.maxHealth += 10;
-                player.health = player.maxHealth; // Restore health on level up
+                player.maxhealth += 10; // <--- ИЗМЕНЕНО: maxHealth -> maxhealth
+                player.health = player.maxhealth; // Restore health on level up <--- ИЗМЕНЕНО: maxHealth -> maxhealth
                 player.attack += 2;
                 player.defense += 1;
                 logMessage(`Поздравляем! Вы достигли уровня ${player.level}!`);
                 updateUI();
-                updatePlayerPositionInFirestore(); // Update stats in Firestore
+                updatePlayerPositionInSupabase(); // Update stats in Supabase
             }
         }
 
@@ -632,8 +720,8 @@
             }
         }
 
-        // Initialize Firebase and start game on window load
-        window.onload = initializeFirebase;
+        // Initialize Supabase and start game on window load
+        window.onload = initializeSupabase;
     </script>
 </body>
 </html>

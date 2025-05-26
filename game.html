@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Простая RPG</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Dark background */
+            color: #e2e8f0; /* Light text */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background-color: #2d3748; /* Slightly lighter dark background */
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.3);
+            max-width: 900px;
+            width: 100%;
+        }
+        canvas {
+            background-color: #000;
+            border: 2px solid #4a5568;
+            border-radius: 8px;
+            display: block;
+            width: 100%; /* Make canvas responsive */
+            max-width: 600px; /* Max width for canvas */
+            aspect-ratio: 1 / 1; /* Keep it square */
+            margin: 0 auto;
+        }
+        .game-info {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background-color: #2d3748;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #4a5568;
+        }
+        .game-info h2 {
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: #a0aec0;
+            margin-bottom: 5px;
+        }
+        .game-info p {
+            font-size: 1rem;
+            color: #cbd5e0;
+        }
+        .message-log {
+            background-color: #1a202c;
+            border: 1px solid #4a5568;
+            border-radius: 8px;
+            padding: 10px;
+            min-height: 100px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            color: #a0aec0;
+        }
+        .message-log p {
+            margin: 0;
+            padding: 2px 0;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .control-button {
+            background-color: #4299e1; /* Blue */
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .control-button:hover {
+            background-color: #3182ce; /* Darker blue */
+        }
+
+        /* Responsive adjustments */
+        @media (min-width: 768px) {
+            .game-container {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: flex-start;
+            }
+            .game-main {
+                flex: 2;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+            .game-sidebar {
+                flex: 1;
+                min-width: 250px;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-main">
+            <canvas id="gameCanvas"></canvas>
+            <div class="message-log" id="messageLog">
+                <p>Добро пожаловать в подземелье!</p>
+            </div>
+            <div class="controls">
+                <button class="control-button" onclick="movePlayer(0, -1)">Вверх</button>
+                <button class="control-button" onclick="movePlayer(0, 1)">Вниз</button>
+                <button class="control-button" onclick="movePlayer(-1, 0)">Влево</button>
+                <button class="control-button" onclick="movePlayer(1, 0)">Вправо</button>
+            </div>
+        </div>
+        <div class="game-sidebar">
+            <div class="game-info">
+                <h2>Игрок</h2>
+                <p>ID: <span id="playerID"></span></p>
+                <p>Здоровье: <span id="playerHealth">100</span></p>
+                <p>Атака: <span id="playerAttack">10</span></p>
+                <p>Защита: <span id="playerDefense">5</span></p>
+                <p>Опыт: <span id="playerXP">0</span></p>
+                <p>Уровень: <span id="playerLevel">1</span></p>
+            </div>
+            <div class="game-info">
+                <h2>Инвентарь</h2>
+                <ul id="inventoryList" class="list-disc list-inside">
+                    <li>Пусто</li>
+                </ul>
+            </div>
+            <div class="game-info">
+                <h2>Текущая локация</h2>
+                <p>X: <span id="playerX">0</span>, Y: <span id="playerY">0</span></p>
+            </div>
+            <div class="game-info">
+                <h2>Другие игроки</h2>
+                <ul id="otherPlayersList" class="list-disc list-inside">
+                    <li>Нет других игроков</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables (provided by Canvas environment)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Firebase instances
+        let app;
+        let db;
+        let auth;
+        let userId;
+        let gameReady = false; // Flag to ensure Firebase is initialized and authenticated
+
+        // Game configuration
+        const TILE_SIZE = 40; // Size of each tile in pixels
+        const MAP_WIDTH = 15; // Map width in tiles
+        const MAP_HEIGHT = 15; // Map height in tiles
+
+        // Game state
+        let player = {
+            id: '', // Will be set to userId
+            name: 'Игрок',
+            x: 0,
+            y: 0,
+            health: 100,
+            maxHealth: 100,
+            attack: 10,
+            defense: 5,
+            xp: 0,
+            level: 1,
+            inventory: []
+        };
+
+        let map = []; // 2D array to represent the game map
+        let enemies = []; // Array to store enemy objects (local to each player for now)
+        let otherPlayers = []; // Array to store other connected players
+
+        // Canvas setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas dimensions based on map size and tile size
+        canvas.width = MAP_WIDTH * TILE_SIZE;
+        canvas.height = MAP_HEIGHT * TILE_SIZE;
+
+        // Player image
+        const playerImage = new Image();
+        playerImage.src = 'https://www.speedrun.com/static/user/j5wngezj/icon.png';
+        playerImage.onload = () => {
+            console.log("Player image loaded successfully!");
+            playerImage.isLoaded = true; // Mark as loaded
+            // No direct drawGame() here, it will be called by setupGame()
+        };
+        playerImage.onerror = () => {
+            console.error("Failed to load player image.");
+            // Fallback to drawing a square if image fails to load
+            playerImage.isLoaded = false;
+        };
+        playerImage.isLoaded = false; // Initial state
+
+        // UI elements
+        const playerIDEl = document.getElementById('playerID');
+        const playerHealthEl = document.getElementById('playerHealth');
+        const playerAttackEl = document.getElementById('playerAttack');
+        const playerDefenseEl = document.getElementById('playerDefense');
+        const playerXPEl = document.getElementById('playerXP');
+        const playerLevelEl = document.getElementById('playerLevel');
+        const playerXEl = document.getElementById('playerX');
+        const playerYEl = document.getElementById('playerY');
+        const inventoryListEl = document.getElementById('inventoryList');
+        const messageLogEl = document.getElementById('messageLog');
+        const otherPlayersListEl = document.getElementById('otherPlayersList');
+
+        /**
+         * Initializes Firebase and authenticates the user.
+         */
+        async function initializeFirebase() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        player.id = userId;
+                        player.name = `Игрок ${userId.substring(0, 6)}`; // Shorten for display
+                        playerIDEl.textContent = userId; // Display full ID
+                        logMessage(`Вы вошли как: ${userId}`);
+                        gameReady = true;
+                        await setupGame(); // Setup game after auth
+                    } else {
+                        logMessage('Попытка анонимного входа...');
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Ошибка инициализации Firebase или аутентификации:", error);
+                logMessage("Ошибка подключения к игре. Пожалуйста, попробуйте позже.");
+            }
+        }
+
+        /**
+         * Sets up the game state and listeners after Firebase is ready.
+         */
+        async function setupGame() {
+            initializeMap();
+            spawnEnemies(); // Enemies are local for now
+            await updatePlayerPositionInFirestore(); // Save initial player state
+            listenForOtherPlayers();
+            drawGame(); // Ensure drawGame is called after map is initialized
+            updateUI();
+            document.addEventListener('keydown', handleKeyDown);
+            logMessage('Используйте клавиши WASD или стрелки для перемещения.');
+        }
+
+        /**
+         * Initializes the game map with walls and empty spaces.
+         */
+        function initializeMap() {
+            // Create a map filled with empty spaces
+            for (let y = 0; y < MAP_HEIGHT; y++) {
+                map[y] = [];
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    map[y][x] = 'floor'; // 'floor', 'wall', 'enemy', 'item'
+                }
+            }
+
+            // Add some random walls
+            for (let i = 0; i < (MAP_WIDTH * MAP_HEIGHT) / 10; i++) {
+                const wallX = Math.floor(Math.random() * MAP_WIDTH);
+                const wallY = Math.floor(Math.random() * MAP_HEIGHT);
+                if (wallX !== player.x || wallY !== player.y) { // Don't place wall on player start
+                    map[wallY][wallX] = 'wall';
+                }
+            }
+        }
+
+        /**
+         * Spawns enemies randomly on the map.
+         */
+        function spawnEnemies() {
+            enemies = []; // Clear existing enemies
+            const numEnemies = Math.floor(Math.random() * 5) + 3; // 3-7 enemies
+            for (let i = 0; i < numEnemies; i++) {
+                let enemyX, enemyY;
+                do {
+                    enemyX = Math.floor(Math.random() * MAP_WIDTH);
+                    enemyY = Math.floor(Math.random() * MAP_HEIGHT);
+                } while (map[enemyY][enemyX] === 'wall' || (enemyX === player.x && enemyY === player.y) || getEnemyAt(enemyX, enemyY));
+
+                enemies.push({
+                    x: enemyX,
+                    y: enemyY,
+                    health: 30,
+                    attack: 8,
+                    defense: 2,
+                    xpValue: 10,
+                    name: 'Гоблин' // Placeholder enemy name
+                });
+                map[enemyY][enemyX] = 'enemy'; // Mark tile as containing an enemy
+            }
+        }
+
+        /**
+         * Gets an enemy object at the given coordinates.
+         * @param {number} x - X coordinate.
+         * @param {number} y - Y coordinate.
+         * @returns {object|null} The enemy object if found, otherwise null.
+         */
+        function getEnemyAt(x, y) {
+            return enemies.find(enemy => enemy.x === x && enemy.y === y);
+        }
+
+        /**
+         * Logs a message to the game message log.
+         * @param {string} message - The message to log.
+         */
+        function logMessage(message) {
+            const p = document.createElement('p');
+            p.textContent = message;
+            messageLogEl.prepend(p); // Add to the top
+            if (messageLogEl.children.length > 20) { // Keep log from getting too long
+                messageLogEl.removeChild(messageLogEl.lastChild);
+            }
+        }
+
+        /**
+         * Updates the UI elements with current player stats.
+         */
+        function updateUI() {
+            playerHealthEl.textContent = player.health;
+            playerAttackEl.textContent = player.attack;
+            playerDefenseEl.textContent = player.defense;
+            playerXPEl.textContent = player.xp;
+            playerLevelEl.textContent = player.level;
+            playerXEl.textContent = player.x;
+            playerYEl.textContent = player.y;
+
+            inventoryListEl.innerHTML = '';
+            if (player.inventory.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'Пусто';
+                inventoryListEl.appendChild(li);
+            } else {
+                player.inventory.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = item.name;
+                    inventoryListEl.appendChild(li);
+                });
+            }
+
+            otherPlayersListEl.innerHTML = '';
+            if (otherPlayers.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'Нет других игроков';
+                otherPlayersListEl.appendChild(li);
+            } else {
+                otherPlayers.forEach(otherPlayer => {
+                    const li = document.createElement('li');
+                    li.textContent = `${otherPlayer.name} (Уровень ${otherPlayer.level}) - X:${otherPlayer.x}, Y:${otherPlayer.y}`;
+                    otherPlayersListEl.appendChild(li);
+                });
+            }
+        }
+
+        /**
+         * Draws the game state on the canvas.
+         */
+        function drawGame() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas
+
+            // Draw map tiles
+            for (let y = 0; y < MAP_HEIGHT; y++) {
+                for (let x = 0; x < MAP_WIDTH; x++) {
+                    // Ensure map[y] and map[y][x] exist before accessing
+                    if (!map[y] || map[y][x] === undefined) {
+                        console.warn(`Map tile at (${x}, ${y}) is undefined. Skipping draw.`);
+                        continue; // Skip drawing this tile if it's undefined
+                    }
+
+                    const tileType = map[y][x];
+                    let color = '#333'; // Default floor color
+                    if (tileType === 'wall') {
+                        color = '#666'; // Wall color
+                    }
+                    ctx.fillStyle = color;
+                    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+                    // Draw grid lines
+                    ctx.strokeStyle = '#222';
+                    ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                }
+            }
+
+            // Draw enemies
+            enemies.forEach(enemy => {
+                ctx.fillStyle = 'red'; // Enemy color
+                // Draw enemies slightly smaller and centered
+                ctx.fillRect(enemy.x * TILE_SIZE + TILE_SIZE / 4, enemy.y * TILE_SIZE + TILE_SIZE / 4, TILE_SIZE / 2, TILE_SIZE / 2);
+            });
+
+            // Draw other players
+            otherPlayers.forEach(otherPlayer => {
+                ctx.fillStyle = 'green'; // Other player color
+                ctx.fillRect(otherPlayer.x * TILE_SIZE, otherPlayer.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = 'white';
+                ctx.font = '10px Inter';
+                ctx.fillText(otherPlayer.name, otherPlayer.x * TILE_SIZE, otherPlayer.y * TILE_SIZE - 5);
+            });
+
+            // Draw current player (using image or fallback to square)
+            if (playerImage.isLoaded) { // Check if image is fully loaded
+                ctx.drawImage(playerImage, player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            } else {
+                // Fallback to drawing a blue square if image not loaded or failed
+                ctx.fillStyle = 'blue';
+                ctx.fillRect(player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            }
+            ctx.fillStyle = 'white';
+            ctx.font = '10px Inter';
+            ctx.fillText(player.name, player.x * TILE_SIZE, player.y * TILE_SIZE - 5);
+        }
+
+        /**
+         * Updates the current player's data in Firestore.
+         */
+        async function updatePlayerPositionInFirestore() {
+            if (!gameReady || !userId) {
+                console.warn("Game not ready or userId not available for Firestore update.");
+                return;
+            }
+            try {
+                const playerDocRef = doc(db, `artifacts/${appId}/public/data/players`, userId);
+                await setDoc(playerDocRef, {
+                    id: player.id,
+                    name: player.name,
+                    x: player.x,
+                    y: player.y,
+                    health: player.health,
+                    maxHealth: player.maxHealth,
+                    attack: player.attack,
+                    defense: player.defense,
+                    xp: player.xp,
+                    level: player.level,
+                    // Inventory is not synchronized for simplicity in this step
+                }, { merge: true }); // Use merge to only update changed fields
+            } catch (e) {
+                console.error("Ошибка записи данных игрока в Firestore:", e);
+                logMessage("Ошибка сохранения вашего прогресса.");
+            }
+        }
+
+        /**
+         * Listens for real-time updates of other players from Firestore.
+         */
+        function listenForOtherPlayers() {
+            if (!gameReady || !userId) {
+                console.warn("Game not ready or userId not available for listening to other players.");
+                return;
+            }
+            const playersCollectionRef = collection(db, `artifacts/${appId}/public/data/players`);
+            // Query to get all players except the current one
+            const q = query(playersCollectionRef, where("id", "!=", userId));
+
+            onSnapshot(q, (snapshot) => {
+                const updatedPlayers = [];
+                snapshot.forEach((doc) => {
+                    updatedPlayers.push(doc.data());
+                });
+                otherPlayers = updatedPlayers;
+                drawGame();
+                updateUI();
+            }, (error) => {
+                console.error("Ошибка при получении данных других игроков:", error);
+                logMessage("Ошибка загрузки данных других игроков.");
+            });
+        }
+
+        /**
+         * Handles player movement.
+         * @param {number} dx - Change in X coordinate.
+         * @param {number} dy - Change in Y coordinate.
+         */
+        async function movePlayer(dx, dy) {
+            if (!gameReady) return;
+
+            const newX = player.x + dx;
+            const newY = player.y + dy;
+
+            // Check bounds
+            if (newX < 0 || newX >= MAP_WIDTH || newY < 0 || newY >= MAP_HEIGHT) {
+                logMessage('Вы не можете идти в этом направлении.');
+                return;
+            }
+
+            // Check for walls
+            if (map[newY][newX] === 'wall') {
+                logMessage('Стена блокирует ваш путь.');
+                return;
+            }
+
+            // Check for enemies (local combat)
+            const targetEnemy = getEnemyAt(newX, newY);
+            if (targetEnemy) {
+                logMessage(`Вы атакуете ${targetEnemy.name}!`);
+                combat(player, targetEnemy);
+                return; // Don't move if attacking
+            }
+
+            // If no obstacles, move the player
+            player.x = newX;
+            player.y = newY;
+            logMessage(`Вы переместились на (${player.x}, ${player.y}).`);
+
+            // Update player position in Firestore
+            await updatePlayerPositionInFirestore();
+
+            drawGame();
+            updateUI();
+        }
+
+        /**
+         * Handles combat between attacker and defender.
+         * @param {object} attacker - The attacking entity (player or enemy).
+         * @param {object} defender - The defending entity (player or enemy).
+         */
+        function combat(attacker, defender) {
+            let damage = Math.max(0, attacker.attack - defender.defense);
+            defender.health -= damage;
+            logMessage(`${attacker.name} наносит ${damage} урона ${defender.name}.`);
+
+            if (defender.health <= 0) {
+                logMessage(`${defender.name} побежден!`);
+                if (defender === player) {
+                    logMessage('Вы были побеждены. Игра окончена!');
+                    // Implement game over logic (e.g., reset game, show message)
+                } else {
+                    // Enemy defeated
+                    player.xp += defender.xpValue;
+                    logMessage(`Вы получили ${defender.xpValue} опыта.`);
+                    // Remove enemy from the map and enemies array
+                    map[defender.y][defender.x] = 'floor'; // Set tile back to floor
+                    enemies = enemies.filter(e => e !== defender);
+                    checkLevelUp();
+                }
+            } else {
+                // If defender is still alive, they might retaliate (if it's turn-based)
+                if (defender === player) {
+                    // Player was attacked, no retaliation in this simple model yet
+                } else {
+                    // Enemy retaliates
+                    logMessage(`${defender.name} отвечает!`);
+                    combat(defender, attacker); // Enemy attacks player back
+                }
+            }
+            drawGame();
+            updateUI();
+        }
+
+        /**
+         * Checks if the player has enough XP to level up.
+         */
+        function checkLevelUp() {
+            const xpNeededForNextLevel = player.level * 50; // Simple XP curve
+            if (player.xp >= xpNeededForNextLevel) {
+                player.level++;
+                player.xp -= xpNeededForNextLevel; // Carry over excess XP
+                player.maxHealth += 10;
+                player.health = player.maxHealth; // Restore health on level up
+                player.attack += 2;
+                player.defense += 1;
+                logMessage(`Поздравляем! Вы достигли уровня ${player.level}!`);
+                updateUI();
+                updatePlayerPositionInFirestore(); // Update stats in Firestore
+            }
+        }
+
+        /**
+         * Handles keyboard input for player movement.
+         * @param {KeyboardEvent} event - The keyboard event.
+         */
+        function handleKeyDown(event) {
+            switch (event.key) {
+                case 'w':
+                case 'ArrowUp':
+                    movePlayer(0, -1);
+                    break;
+                case 's':
+                case 'ArrowDown':
+                    movePlayer(0, 1);
+                    break;
+                case 'a':
+                case 'ArrowLeft':
+                    movePlayer(-1, 0);
+                    break;
+                case 'd':
+                case 'ArrowRight':
+                    movePlayer(1, 0);
+                    break;
+            }
+        }
+
+        // Initialize Firebase and start game on window load
+        window.onload = initializeFirebase;
+    </script>
+</body>
+</html>

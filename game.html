@@ -226,7 +226,8 @@
 
     <script type="module">
         // Supabase imports
-        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.50.0/+esm';
+        console.log("Attempting to import Supabase client from CDN...");
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.50.0/dist/supabase.esm.min.js';
 
         // Supabase configuration - Use global variables if provided by the environment, otherwise use hardcoded values
         const SUPABASE_URL = typeof __supabase_url !== 'undefined' ? __supabase_url : 'https://kbjlqmzeclrtowtygbvu.supabase.co';
@@ -1221,6 +1222,8 @@
             console.log("Attempting to hide loading overlay directly via style.display = 'none'...");
             loadingOverlay.style.display = 'none'; // Directly hide the element
             console.log("Loading overlay should now be hidden. Game should be visible locally.");
+            console.log("Current loadingOverlay.style.display:", loadingOverlay.style.display);
+
 
             // Attempt Supabase connection and full game setup in the background
             try {
